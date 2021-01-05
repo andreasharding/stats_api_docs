@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Tutorial: 01. Introduction</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Tutorial: 01. Introduction</h1>
+
+    <section>
+
+<header>
+    
+
+    <h2>01. Introduction</h2>
+</header>
+
+<article>
+    <link rel="stylesheet" href="./api.css">
+
+<h3>What is an Application programming interface (API)?</h3><p>Here, it is a way of providing controls for, and access to, a database connected to the Internet.
+It is more properly called a <a href="https://en.wikipedia.org/wiki/Web_API">Web API</a> - there are <a href="https://en.wikipedia.org/wiki/Application_programming_interface">others types of API</a>.</p>
+<h3>API standards</h3><p>Just to be clear, this API doesn't follow any existing API standards. That's a decision that wasn't taken lightly, and the original intention was to adhere to a standard if possible.</p>
+<p>Two API standards in particular were examined:</p>
+<ul>
+<li><a href="https://github.com/OAI/OpenAPI-Specification">OpenAPI</a> </li>
+<li><a href="https://en.wikipedia.org/wiki/SDMX">SDMX (Statistical Data and Metadata eXchange)</a></li>
+</ul>
+<p>These, however, address use-cases that diverge significantly from the needs of this API.
+The use-case for this API is to allow customisable access to data from statistical releases.
+It is intended to be used by code, with the data being provided in a format suitable for further processing.
+The data is stored in a database rather than spreadsheats, which means the data can be reshaped, sorted and filtered in any way the user needs.</p>
+<h4>How does this API differ from OpenAPI and SDMX, and why?</h4><p>In line with user-centred design principles, the intention is to allow users to select the features they want from the dataset, 
+in any order, from any of the data-dimensions (these are explained in 05_adding_data).</p>
+<p>There are some prescriptive elements at the start of the API query necessary to allow the API to narrow down the user's choice of dataset in order to get the correct dimensions.</p>
+<p>However, once the dataset has been established, the remainder of the API call is intended to be unstructured.</p>
+<p>This is a consequence of allowing users to select any number of features from a list that can be in the hundreds. 
+A rigid hierarchical API call structure, as in OpenAPI or SDMX, would quicky become a significant cognitive burden on users.</p>
+<p>In more detail, the idea is to provide access to a dataset such that:</p>
+<ul>
+<li>the request is sufficiently expressive i.e.
+  the user should be able to specify their requirements with sufficient precision to identify a single datum within the dataset, through to subsets, or the entire dataset</li>
+<li>it is accesible via the Internet</li>
+<li>there is a clear methodology for the data owner to make their data available</li>
+<li>the user can choose the format of the data returned</li>
+<li>the user can choose the shape of the data returned</li>
+<li>it is self-describing and discoverable (only partially implemented in this version of the API)</li>
+</ul>
+<h3>Other documentation: the API user guide</h3><p>The API allows clients (particularly code, but anything like a browser or tools like curl), to query it and get data.
+How to do this is explained in the manual that accompanies each dataset in the API, as it requires contextual information about the dataset. 
+As an example, see <a href="../../../energy/manual/index.html">the documentation for the DUKES dataset</a>.</p>
+<p>To access the API and get data from it, the client/user needs to </p>
+<ul>
+<li>ascertain what services are available</li>
+<li>identify how to format service requests</li>
+<li>know how to send and receive requests and responses</li>
+<li>understand the format of the response</li>
+</ul>
+</article>
+
+</section>
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-Querify.html">Querify</a></li><li><a href="module-Shapeshifter.html">Shapeshifter</a></li></ul><h3>Tutorials</h3><ul><li><a href="tutorial-01_introduction.html">01. Introduction</a></li><li><a href="tutorial-02_installation.html">02. Installation</a></li><li><a href="tutorial-03_getting_data.html">03. Using the API to get data</a></li><li><a href="tutorial-04_how_it_works.html">04. How it works</a></li><li><a href="tutorial-05_data_structure.html">05. Data structures</a></li><li><a href="tutorial-06_preparing_data.html">06. Preparing stats data for the API</a></li><li><a href="tutorial-07_server.html">07. Updating live server</a></li><li><a href="tutorial-08_ui_landing.html">08. UIs: landing pages</a></li><li><a href="tutorial-09_ui_dd.html">09.  UIs: data downloader</a></li><li><a href="tutorial-10_ui_graphs.html">10. Other UI possibilities: graphs</a></li><li><a href="tutorial-11_a1.html">Annex 1: Design Principles</a></li><li><a href="tutorial-12_a2.html">Annex 2: Engineering Principles</a></li><li><a href="tutorial-13_a3.html">Annex 3: Future Developments</a></li><li><a href="tutorial-14_a4_graphs.html">Annex 4: Graph Examples</a></li></ul><h3>Global</h3><ul><li><a href="global.html#end_timer">end_timer</a></li><li><a href="global.html#finalise_response">finalise_response</a></li><li><a href="global.html#format_yaml">format_yaml</a></li><li><a href="global.html#get_datasets">get_datasets</a></li><li><a href="global.html#normalizePort">normalizePort</a></li><li><a href="global.html#onError">onError</a></li><li><a href="global.html#onListening">onListening</a></li><li><a href="global.html#output_404">output_404</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.5.5</a> on Mon Jan 13 2020 17:36:08 GMT+0000 (Greenwich Mean Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: correct_modules/querify/querify.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: correct_modules/querify/querify.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/** 
+ * A module for creating SQL query statements based on the cleaned user input parameters
+ * @module Querify 
+ * @version "0.0.8"
+ * @example
+ * // to create a flat tree (easier for lookups, but not like a real tree)
+ * create_flat_tree_array(flat);
+ * // returns an object in flat tree format, which looks like: 
+ * // [{id: "A", children: ["B", "C"], parent: null}]
+*/
+
+(function (global, factory) {
+	typeof exports === 'object' &amp;&amp; typeof module !== 'undefined' ? factory(exports) :
+	typeof define === 'function' &amp;&amp; define.amd ? define(['exports'], factory) :
+	(factory((global.Querify = global.Querify || {})));
+}(this, (function (exports) {
+// 	'use strict';
+	const _ = require('lodash');
+	const shapeshifter = require('../shapeshifter/shapeshifter');
+	
+	var version = "0.0.8";
+
+	// get_version
+	// ===========
+	
+	/** 
+	* this just returns the version number - also useful when you want to test the module is correctly loaded
+	* @returns {string} version number
+	*/
+
+	exports.get_version = function() {
+		return version;
+	}
+	
+	
+	// select_from_tree
+	// ================
+	
+	/** 
+	* constructs a SQL query from what the user wants (query_parameters) 
+	* and what is on offer (qs_specification_all)
+	* @example
+	* select_from_tree(query_parameters.good_routes[tree_name], trees[tree_name], 
+	*              tree_name, qs_specification_all.sql[table_name].hierarchy[tree_name]);
+	* 
+	* @param {Object} routes - What the user wants
+	* @param {Object} node_list - What the system can offer
+	* @param {String} tree - Name of the tree
+	* @param {String} root_name - Name of the tree's root
+	* @param {String} detail_level - detail_level
+	* 
+	* @returns {Object} 
+	*/
+	
+	
+	exports.select_from_tree = function(routes, node_list, tree, root_name, detail_level) {
+		// console.log('select_from_tree', routes, JSON.stringify(node_list), tree, root_name, detail_level); 
+		// console.log('select_from_tree:1', routes, tree, root_name, Object.keys(node_list));
+		var children, selected_node, selected_nodes, node_list_root, selected_things;
+		var collected_ids = [], id_field_name = 'ref_order';
+		
+		// var detail_level = 'full';
+		
+		// need to reset parent counts - otherwise server will just accumulate continually.
+		// This could be a problem under periods of high load, in which case will need to 
+		// carefully manage user session IDs
+		shapeshifter.reset(tree);
+
+// 		routes.forEach(function(e) {
+// 			console.log('select_from_tree:routes', root_name, e);
+// 			//add to tree...
+// 			// shapeshifter.select_node(tree, root_name, e);
+// 		});
+
+		children = [];
+		// root_name = qs_specification_all.sql[table_name].hierarchy[tree];
+		selected_node = root_name;
+		selected_nodes = routes;
+		node_list_root = root_name;
+
+		switch (detail_level) {
+			case 'aggregate':
+				// top level aggregate figure only
+				children = [selected_node];
+				// console.log('aggregate ' + children.length, children);
+			break;
+
+			case 'medium':
+				// non-leaf nodes only
+				if (node_list_root == root_name) {// TODO - this test will always pass as node_list_root = root_name (see above)
+					// console.log('select_from_tree: medium', node_list, selected_node);
+					children = shapeshifter.leaf_collect(node_list, selected_node, '');
+					// children = temp_leaf_collect(node_list, selected_node, 'TX');// TODO deal with hardwired 'TX'
+					
+				} else {
+					// TODO - this needs looking at for flows
+					children = shapeshifter.branch_child_collect(node_list, selected_node, true);
+				}
+				children.push(selected_node);
+				// console.log('medium ' + children.length, children);
+			break;
+
+			case 'full':
+				//all nodes
+				// console.log('full', selected_nodes);
+				for (var i = 0; i &lt; selected_nodes.length; i++) {
+					selected_node = selected_nodes[i];
+					// console.log('full >>> ' + selected_node);//, node_list[selected_node]);
+					// children.push(temp_child_collect(node_list, selected_node));
+					children.push(shapeshifter.child_collect(node_list, selected_node));
+					children.push(selected_node);
+				}
+				children = _.flatten(children);
+				// console.log('full: children ' + children.length, children);
+				
+				// this bit may be common to all, in which case refactor out
+				selected_things = _.filter(node_list, function(o) { return _.includes(children, o.id); });
+				// console.log('selected_things', selected_things);
+				
+				_.forEach(selected_things, function(thing_value, thing) {
+					collected_ids.push(thing_value[id_field_name]);
+				});
+			break;
+		
+			case 'exact':
+				// don't need to do anything here - just go with exactly what is specified in the route vars
+				children = routes;
+				
+				// this bit is same as in full
+				selected_things = _.filter(node_list, function(o) { return _.includes(children, o.id); });
+				// console.log('exact selected_things', selected_things);
+				
+				_.forEach(selected_things, function(thing_value, thing) {
+					collected_ids.push(thing_value[id_field_name]);
+				});
+			break;
+		
+
+			default:
+				children = shapeshifter.leaf_collect(node_list, selected_node);
+				// console.log('default ' + children.length, children);
+			break;
+
+		}
+		
+		
+		// console.log('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~e');
+		// console.log(children);
+		// console.log(collected_ids);
+		// console.log(selected_things);
+		// console.log('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~');
+		
+		
+		return {items: children, ids: collected_ids, tree: tree, root_name: root_name};
+	}
+	
+	
+	
+	
+	
+	
+	// make_sql
+	// ========
+	
+	/** 
+	* constructs a SQL query from what the user wants (query_parameters) 
+	* and what is on offer (qs_specification_all)
+	* 
+	* @param {Object} query_parameters - What the user wants
+	* @param {Object} qs_specification_all - What the system can offer
+	* @param {Object} trees - array of objects: each dimension in (flat) tree format
+	* 
+	* @returns {Object} SQL query string and left-over non-SQL parameters (checked, for use downstream)
+	*/
+
+	exports.make_sql = function(query_parameters, qs_specification_all, trees) {
+		var table_name, qs_specifications = {}, all_user_request_params = {}, sort_fields, aggregation_type, sql_control_fields = {};
+		var selected_params, checked_query_strings = {}, non_sql_query_strings = {}, excluded_params = [];
+		
+		if (typeof(deploy_mode) == 'undefined') var deploy_mode = true;
+		
+		// console.log('querify: query_parameters', query_parameters);
+		// console.log('querify: qs_specification_all', qs_specification_all);
+
+		/*
+			Before any SQL can be generated, the user request has to be separated out into what is
+			needed for the SQL query, and what parameters are relevant to how the returned data
+			is to be formatted for output back to user.
+			There is also processing of query parameters that are mutually exclusive (e.g. user can
+			specify a single year or a range of years using a start and end parameter, but it doesn't 
+			make sense to have both, so the first that appears blocks the other)
+			
+			It makes sense to return both to the user in one object:
+			{sql: sql_statement, non_sql: non_sql_query_strings_for_use_elsewhere}
+			
+			There may be a case to be made for separating out the organising the user request/system offer
+			from the actual SQL statement construction, but it's all lumped together for now.
+		*/
+		
+		
+		table_name = query_parameters.table_name;
+		
+		// compile list of all parameter specifications that need to be dealt with. i.e. all generic params + table-specific
+		_.merge(qs_specifications, qs_specification_all.generic, qs_specification_all[table_name]);
+
+		// if a qs is missing, but is not required, then OK to omit it
+		_.forEach(query_parameters.missing_query_strings, function(miss_value, miss) {
+			if (qs_specifications[miss].required) {
+				all_user_request_params[miss] = miss_value;
+			}
+		});
+		// console.log('querify: all_user_request_params', all_user_request_params);
+
+		// this is all query strings required: good + required defaults
+		_.merge(all_user_request_params, query_parameters.good_query_strings);
+		
+		selected_params = _.pick(qs_specifications, _.keys(all_user_request_params));
+		// console.log('querify: selected_params', selected_params);
+
+		_.forEach(selected_params, function(qs_value, qs) {
+			// first check if a parameter has been excluded by a previous parameter's mutex / or isn't a SQL parameter
+			if (qs_specifications[qs].purpose == 'sql') {
+				if (!_.includes(excluded_params, qs)) {
+					
+					// deal with query parameters that are mutually exclusive:
+					// check if a parameter has been excluded by a previous parameter
+					// make a note of which to exclude, and then exclude all at once later
+					if (!_.isUndefined(qs_specifications[qs].mutex)) {
+						// console.log('in missing?', qs, _.keys(query_parameters.missing_query_strings), _.includes(_.keys(query_parameters.missing_query_strings), qs) );
+						if(_.includes(_.keys(query_parameters.missing_query_strings), qs)) {
+							excluded_params = _.union(excluded_params, [qs]);
+						} else {
+							excluded_params = _.union(excluded_params, qs_specifications[qs].mutex);
+						}
+					}
+					
+					// separate out sort and aggregation parameters, as these are dealt with separately
+					switch (qs_specifications[qs].type) {
+						case "sort":
+							sort_fields = qs_value;
+						break;
+						
+						case "aggregation":
+							aggregation_type = qs_value;
+						break;
+						
+						case "sql_control_i":
+						case "sql_control_s":
+							// console.log('querify: sql_control', qs, qs_value);
+							sql_control_fields[qs] = qs_value;
+							sql_control_fields[qs].requested = all_user_request_params[qs];
+						break;
+						
+						default:
+							// collection of SQL requests done here
+							checked_query_strings[qs] = qs_value;
+							checked_query_strings[qs].requested = all_user_request_params[qs];
+						break;
+					}
+					
+				}
+	
+			} else {
+				// collection of requests not relevant to SQL, i.e. output formatting 
+				non_sql_query_strings[qs] = qs_value;
+				non_sql_query_strings[qs].requested = all_user_request_params[qs];
+			}
+		
+		});
+
+		// exclude mutex parameters in one go...
+		// all_user_request_params = _.omit(all_user_request_params, excluded_params);
+		checked_query_strings = _.omit(checked_query_strings, excluded_params);
+		
+		// At this point, it may be useful to output what has been collected...
+		// console.log('querify: excluded_params', excluded_params);
+		// console.log('querify: non_sql_query_strings', non_sql_query_strings);
+		// console.log('querify: all_user_request_params', all_user_request_params);// this contains everything the user requested, including non-sql
+		// console.log('querify: checked_query_strings', checked_query_strings );// this is the master list of only those specifications that are relevant
+		// console.log('querify: sort_fields', sort_fields);
+		// console.log('querify: query_parameters', query_parameters);
+		// console.log('querify: trees', trees);
+		
+		/*
+			This section is where the routes, query strings, sort orders are actually made into a SQL query
+		*/
+		
+		// ROUTES
+		var wheres = [], where_str = "", quote;
+				
+		if ( _.isEmpty(trees) ) {
+			// console.log('no tree');
+			
+			_.forEach(query_parameters.good_routes, function(rt_value, rt) {
+				if(rt_value.length > 1) {
+					// console.log('wheres.push _A_', (rt + " IN ('" + rt_value.join("', '") + "')"));
+					wheres.push(rt + " IN ('" + rt_value.join("', '") + "')");
+				} else {
+					if(rt_value.length == 1) {
+					// console.log('wheres.push _B_', (rt + " = '" + rt_value[0] + "'"));
+						wheres.push(rt + " = '" + rt_value[0] + "'");
+					}
+				}
+			});	
+		} else {
+			// console.log('trees', JSON.stringify(_.keys(trees).length));
+			// qs_specification_all.sql[table_name].hierarchy
+			/*
+			query_parameters.good_routes:
+			   { flow: [ 'supply', 'statistical_difference' ],
+				 fuel: [ 'coal', 'primary_oils' ] },			
+			*/
+			// var tree_ids = [];
+			
+			// console.log('>>>>>>>>>>>>>>>>>>>> sql_control_fields\n', sql_control_fields);
+			
+			var detail_level = sql_control_fields.resolution.requested;// e.g. 'full'
+			// console.log('\u001b[32mdetail_level\u001b[39m', detail_level);
+			_.forEach(trees, function(tree, tree_name) {
+				
+				// console.log('>>>>>>>> select_from_tree', table_name, tree_name, qs_specification_all.sql, qs_specification_all.sql[table_name].hierarchy[tree_name]);
+				
+				// console.log('select_from_tree', JSON.stringify(query_parameters.good_routes[tree_name]), JSON.stringify(tree), JSON.stringify(tree_name), detail_level); 
+				// console.log('select_from_tree', JSON.stringify(query_parameters.good_routes[tree_name]), JSON.stringify(tree_name), detail_level); 
+				// tree_ids.push(select_from_tree(query_parameters.good_routes[tree_name], trees[tree_name], tree_name, qs_specification_all.sql[table_name].hierarchy[tree_name], detail_level));
+				tree_info = exports.select_from_tree(query_parameters.good_routes[tree_name], trees[tree_name], tree_name, qs_specification_all.sql[table_name].hierarchy[tree_name], detail_level);
+				
+				if (tree_info.items.length > 0) {
+					// console.log('\u001b[33mtree_info\u001b[39m', tree_info);
+					// "resolution": {"type": "sql_control_s", "acceptable": ["full", "medium", "aggregate", "exact"], "fallback": "exact", "multiple": false, "purpose": "sql", "required": true},
+					if (typeof(all_user_request_params.resolution) != 'undefined') {
+						
+					}
+				
+				}
+				
+				if (typeof(qs_specification_all.sql[table_name].hierarchy[tree_name + "_detail"]) != 'undefined') {
+					if (tree_info.ids.length == 1) {
+						// console.log('wheres.push _C_', (qs_specification_all.sql[table_name].hierarchy[tree_name + "_detail"] + " = '" + tree_info.ids[0] + "'"));
+						// wheres.push(qs_specification_all.sql[table_name].hierarchy[tree_name + "_field"] + " = '" + tree_info.ids[0] + "'");
+						wheres.push(qs_specification_all.sql[table_name].hierarchy[tree_name + "_detail"] + " = '" + tree_info.ids[0] + "'");
+					} else {
+						if (tree_info.ids.length > 0) {
+							// console.log('wheres.push _D_', (qs_specification_all.sql[table_name].hierarchy[tree_name + "_detail"] + " IN ('" + tree_info.ids.join("','") + "')"));
+							// wheres.push(qs_specification_all.sql[table_name].hierarchy[tree_name + "_field"] + " IN (" + tree_info.ids.join(',') + ")");
+							wheres.push(qs_specification_all.sql[table_name].hierarchy[tree_name + "_detail"] + " IN ('" + tree_info.ids.join("','") + "')");
+						}
+					}
+				} else {
+					console.log('\u001b[31mERROR:\u001b[39m incorrectly defined fieldname: cannot use for SQL query: ' + table_name + ' / ' + tree_name);
+				}
+				
+			});
+						
+						
+		}
+		
+		
+		
+		
+		// QUERY STRINGS
+		_.forEach(checked_query_strings, function(qs_value, qs) {
+			// console.log('checked_query_strings', qs, qs_value);			
+			
+			if(!_.includes(qs_value.sql_ignore, qs_value.requested)){
+				// console.log('!_.includes(qs_value.sql_ignore, qs_value.requested)', qs_value.sql_ignore, qs_value.requested);
+				if (!_.isUndefined(qs_value.range) ) {
+					// console.log('!_.isUndefined(qs_value.range) ', !_.isUndefined(qs_value.range) );
+					// console.log('wheres.push _E_', (qs.split('_')[0] + (qs_value.range == 0 ? ' >= ' : ' &lt;= ') + qs_value.requested));
+					wheres.push(qs.split('_')[0] + (qs_value.range == 0 ? ' >= ' : ' &lt;= ') + qs_value.requested);
+				} else {
+					quote = (qs_value.type == 'integer' ? "" : "'");
+					// console.log('_.isUndefined(qs_value.range)', !_.isUndefined(qs_value.range), qs_value.type, qs_value.requested, quote);
+					// also need to test for qs that are allowed multiple values...
+					// e.g  qs == measure &amp; qs_value.requested == [ 'B', 'E' ]
+					if (qs_value.multiple) {
+						// console.log('************ qs_value.multiple', qs, qs_value.requested);
+						var multi_wheres = [];
+						if (typeof(qs_value.requested.push) == 'function') {
+							_.forEach(qs_value.requested, function(qs_value_mult, qs_m) {
+								multi_wheres.push(qs + ' = ' + quote + qs_value_mult + quote);
+							});
+							// console.log('wheres.push _F_', multi_wheres, (multi_wheres.join(' OR ')));
+							wheres.push(multi_wheres.join(' OR '));
+						} else {
+							wheres.push(qs + ' = ' + quote + qs_value.requested + quote);
+						}
+					} else {
+						// console.log('wheres.push _G_', (qs + ' = ' + quote + qs_value.requested + quote));
+						wheres.push(qs + ' = ' + quote + qs_value.requested + quote);
+					}
+				}
+			}
+		});
+		// console.log('************ WHERE', wheres);
+
+		if (wheres.length > 0) where_str = " WHERE " + wheres.join(' AND ');
+		
+		
+		// SORTING
+		var sorts = [], sort_string = "";
+		if (typeof(all_user_request_params.sort) != 'undefined') {
+			// console.log('************** SORTING', all_user_request_params.sort);
+			for(let i = 0; i &lt; all_user_request_params.sort.length; i++) {
+				if (_.includes(sort_fields.acceptable, all_user_request_params.sort[i].sort_field)) {
+					sorts.push(all_user_request_params.sort[i].sort_field + ' ' + (all_user_request_params.sort[i].sort_direction == 'A' ? 'ASC' : (all_user_request_params.sort[i].sort_direction == 'D' ? 'DESC' : '')));
+				}
+			}
+			// console.log('sorts array', sorts);
+			if (sorts.length > 0) sort_string = " ORDER BY " + sorts.join(', ');
+		} else {
+			// "fallback": {"sort_field": "display_order", "sort_direction": "A", "fallback": true, "priority": 999}
+			
+			for(let i = 0; i &lt; qs_specifications.sort.fallback.length; i++) {
+				// if (_.includes(sort_fields.acceptable, qs_specifications.sort.fallback[i].sort_field)) {
+					sorts.push(qs_specifications.sort.fallback[i].sort_field + ' ' + (qs_specifications.sort.fallback[i].sort_direction == 'A' ? 'ASC' : (qs_specifications.sort.fallback[i].sort_direction == 'D' ? 'DESC' : '')));
+				//}
+			}
+			// console.log('sorts array', sorts);
+			if (sorts.length > 0) sort_string = " ORDER BY " + sorts.join(', ');
+			
+			// sort_string = " ORDER BY " + qs_specifications.sort.fallback.sort_field + " " + (qs_specifications.sort.fallback.sort_direction == 'A' ? 'ASC' : (qs_specifications.sort.fallback.sort_direction == 'D' ? 'DESC' : ''));
+		}
+		// console.log('\u001b[35m>>> sort_string\u001b[39m', sort_string);
+		
+		
+		// console.log('sql_control_fields', sql_control_fields);
+		// LIMIT
+		var limit_str;
+		if (typeof(sql_control_fields.limit) != 'undefined') {
+			limit_str = " LIMIT " + sql_control_fields.limit.requested;
+		}
+		
+		// console.log('querify: qs_specification_all.sql[table_name]', qs_specification_all.sql[table_name]);
+		// console.log('querify: qs_specification_all.sql[table_name]', qs_specification_all.sql[table_name].fields);
+		var included_fields;
+		
+		// console.log('querify: sql_control_fields.fields', sql_control_fields.fields, 'exclude_fields', sql_control_fields.exclude_fields);
+			
+		if (typeof(sql_control_fields.fields) == 'undefined') {
+			included_fields = _.clone(qs_specification_all.sql[table_name].fields);
+			// Note: this means if both fields and exclude_fields are present, fields will take precedence
+			if (typeof(sql_control_fields.exclude_fields) != 'undefined') {
+				_.remove(included_fields, function(n) {return n == sql_control_fields.exclude_fields.requested;});
+			}
+		} else {
+			included_fields = sql_control_fields.fields.requested;
+		}
+		
+		// console.log('querify: included_fields', included_fields, 'exclude_fields', sql_control_fields.exclude_fields);
+		
+		// AGGREGATION
+		var group_by = '';
+		if (typeof(all_user_request_params.aggregation) != 'undefined') {
+			// console.log('aggregation_type', aggregation_type, included_fields, all_user_request_params.aggregation);
+			// console.log('>>>> aggregation_type', aggregation_type);
+			// console.log('>>>> included_fields', included_fields);
+			// console.log('>>>> all_user_request_params.aggregation', all_user_request_params.aggregation);
+			
+			switch(all_user_request_params.aggregation.aggregation) {
+				case 'absolute':
+					// console.log('absolute', included_fields);
+					var field_idx = _.indexOf(included_fields, all_user_request_params.aggregation.target);
+					// console.log('****', field_idx, all_user_request_params.aggregation.target);
+					included_fields[field_idx] = 'ABS(' + all_user_request_params.aggregation.target + ') AS ' + all_user_request_params.aggregation.target;
+				break;
+				
+				default:
+				/**/
+					var pos = _.indexOf(included_fields, aggregation_type.target);
+					if (pos != -1) {
+						included_fields[pos] = all_user_request_params.aggregation.aggregation + '(' + all_user_request_params.aggregation.target + ')';
+					}
+					var group_fields = _.clone(included_fields);
+					_.pullAt(group_fields, [pos]);
+					group_by = ' GROUP BY ' + _.join(group_fields, ',');
+					// console.log(included_fields, group_by);
+					
+				break;
+			}
+		}
+		
+		// test, before using join, that there isn't going to be a problem with it not being an array...
+		if (typeof(included_fields) == 'string') {
+			included_fields = [included_fields];
+		}
+		
+		// then finally, check if fieldnames need to be substituted for human-readable variants
+		// (default is presumed to be machine-readable; but ignore this substitution if user
+		// has specified fields to include or exclude in the "fields" or "exclude_fields" parameters
+		
+		console.log('h/m:',  '[' + sql_control_fields.style.requested + ']', sql_control_fields.fields, sql_control_fields.exclude_fields);
+		
+		if ( (typeof(sql_control_fields.fields) == 'undefined') &amp;&amp; (typeof(sql_control_fields.exclude_fields) == 'undefined') ) {
+			if (sql_control_fields.style.requested == 'h') {
+				// now need to substitute whatever can be
+				var m_fields = _.keys(qs_specification_all.sql[table_name].display);
+				// console.log('[h] BEFORE SUBSTITUTION: included_fields', included_fields, table_name);
+				// console.log('querify: qs_specification_all.sql[table_name].display', qs_specification_all.sql[table_name].display, m_fields);
+				m_fields = _.intersection(included_fields, m_fields);
+				for (var i = 0; i &lt; included_fields.length; i++) {
+					if (_.includes(m_fields, included_fields[i])) included_fields[i] = qs_specification_all.sql[table_name].display[included_fields[i]].label;
+				}
+				// console.log('AFTER SUBSTITUTION: included_fields, m_fields', included_fields, m_fields);
+			} else if (sql_control_fields.style.requested == 'a') {
+				// console.log('[a] BEFORE SUBSTITUTION: included_fields', included_fields, table_name);
+				var m_fields = _.keys(qs_specification_all.sql[table_name].display);
+				// console.log('querify: qs_specification_all.sql[table_name].display', qs_specification_all.sql[table_name].display, m_fields);
+				m_fields = _.intersection(included_fields, m_fields);
+				// var insertion_indexes;
+				console.log('==== included_fields, m_fields', included_fields, m_fields);
+				for (var i = included_fields.length - 1; i >= 0 ; i--) {
+					if (_.includes(m_fields, included_fields[i])) {
+						console.log(i, included_fields[i]);
+						// insert field after position i
+						included_fields.splice(i, 0, qs_specification_all.sql[table_name].display[included_fields[i]].label);
+						// included_fields.push(qs_specification_all.sql[table_name].display[included_fields[i]].label);
+					}
+				}
+				console.log('[a] AFTER INSERTION: included_fields, m_fields', included_fields, m_fields);
+			}
+		}
+		
+		// var included_fields = ["year","measure","value","unit","sizeband","region","sector","sic","legalstatus","src"];
+		// Now put all the fragments together
+		sql_stmt = "SELECT " + included_fields.join(",") + " FROM " + table_name + where_str + group_by + sort_string + limit_str + ';';
+		
+		// if (!deploy_mode) 
+		console.log('querify: \u001b[35mSQL stmt:\u001b[39m', sql_stmt);
+		
+		// then return both the SQL statement and non-SQL parameters for use later
+		return {sql: sql_stmt, non_sql: non_sql_query_strings, included: included_fields};
+	}
+	
+	
+	
+	
+	//////////////////////////////////////////////////////////////////////////////////////
+	////////////////////////////////////    EXPORTS    ///////////////////////////////////
+	//////////////////////////////////////////////////////////////////////////////////////
+
+
+	exports.version = version;
+
+	Object.defineProperty(exports, '__esModule', { value: true });
+
+})));
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-Querify.html">Querify</a></li><li><a href="module-Shapeshifter.html">Shapeshifter</a></li></ul><h3>Tutorials</h3><ul><li><a href="tutorial-01_introduction.html">01. Introduction</a></li><li><a href="tutorial-02_installation.html">02. Installation</a></li><li><a href="tutorial-03_getting_data.html">03. Using the API to get data</a></li><li><a href="tutorial-04_how_it_works.html">04. How it works</a></li><li><a href="tutorial-05_data_structure.html">05. Data structures</a></li><li><a href="tutorial-06_preparing_data.html">06. Preparing stats data for the API</a></li><li><a href="tutorial-07_server.html">07. Updating live server</a></li><li><a href="tutorial-08_ui_landing.html">08. UIs: landing pages</a></li><li><a href="tutorial-09_ui_dd.html">09.  UIs: data downloader</a></li><li><a href="tutorial-10_ui_graphs.html">10. Other UI possibilities: graphs</a></li><li><a href="tutorial-11_a1.html">Annex 1: Design Principles</a></li><li><a href="tutorial-12_a2.html">Annex 2: Engineering Principles</a></li><li><a href="tutorial-13_a3.html">Annex 3: Future Developments</a></li><li><a href="tutorial-14_a4_graphs.html">Annex 4: Graph Examples</a></li></ul><h3>Global</h3><ul><li><a href="global.html#end_timer">end_timer</a></li><li><a href="global.html#finalise_response">finalise_response</a></li><li><a href="global.html#format_yaml">format_yaml</a></li><li><a href="global.html#get_datasets">get_datasets</a></li><li><a href="global.html#normalizePort">normalizePort</a></li><li><a href="global.html#onError">onError</a></li><li><a href="global.html#onListening">onListening</a></li><li><a href="global.html#output_404">output_404</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.5.5</a> on Mon Jan 13 2020 17:36:08 GMT+0000 (Greenwich Mean Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

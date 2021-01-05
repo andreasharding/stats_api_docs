@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Tutorial: 10. Other UI possibilities: graphs</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Tutorial: 10. Other UI possibilities: graphs</h1>
+
+    <section>
+
+<header>
+    
+
+    <h2>10. Other UI possibilities: graphs</h2>
+</header>
+
+<article>
+    <script src="./vega.js"></script>
+<script src="./vega-lite.js"></script>
+<script src="./vega-embed.js"></script>
+<script src="./frappe-charts.min.iife.js"></script>
+<script src="./vega-tooltip.js"></script>
+<link href="./vega-tooltip.min.css" rel="stylesheet" type="text/css">
+<script src="./axios.min.js" type="text/javascript"></script>
+<script src="./lodash.min.js"></script>
+
+
+<p><link rel="stylesheet" href="./vs.css"></p>
+<p><link rel="stylesheet" href="./api.css"></p>
+<script src="./highlight.pack.js" type="text/javascript"></script>
+<script>hljs.initHighlightingOnLoad();console.log("initHighlightingOnLoad")</script>
+
+
+
+
+
+<h3>Graphs UI</h3><p>An obvious use of an API is to provide up-to-date data for drawing graphs for dashboards and other displays. 
+This guide goes through the steps required to create the graph shown below. 
+There are examples of other graphs in 12_a4_graphs), along with an explanation of the data wrangling undertaken.</p>
+<div class="graph_box view" id="imports_by_fuel_over_time_graph"></div>
+<div class="graph_box view" id="imports_by_fuel_over_time_graph_frappe"></div>
+
+<h3>How to query an API endpoint to get data</h3><p>This will first show you how to set up the HTML for a simple web page, and then guide you through
+writing the JavaScript to aquire and wrangle the data, and then draw the graph.</p>
+<p>The actual data acquisition is very simple. The example used here plots an area chart of imports over time, with broken down by fuel type (nearly - some fuel types have such low values they are aggregated into one for plotting)
+The URL for this is <code>http://localhost:8080/energy/dukes/coal/manufactured_fuel/primary_oils/petroleum_products/natural_gas/
+bioenergy_and_waste/primary_electricity/electricity_aggregate/imports?format=json&amp;unit=original&amp;year_start=1998&amp;year_end=2016</code></p>
+<ol>
+<li>Setup HTML skeleton</li>
+</ol>
+<p>This is a super-minimal web page - it's all structure and no content at this stage</p>
+<pre><code class="hljs html" data-trim contenteditable>
+
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+
+</code></pre>
+
+
+
+
+
+<ol start="2">
+<li>Importing dependencies</li>
+</ol>
+<p>Put this inside the head element - between the <kbd>&lt;head&gt;</kbd> and <kbd>&lt;/head&gt;</kbd> tags</p>
+<pre><code class="hljs html" data-trim contenteditable>
+
+&lt;meta charset="utf-8"&gt;
+&lt;meta name="viewport" content="width=device-width, initial-scale=1"&gt;
+&lt;meta http-equiv="x-ua-compatible" content="ie=edge"&gt;
+&lt;script src="https://cdn.jsdelivr.net/npm/vega@3"&gt;&lt;/script&gt;
+&lt;script src="https://cdn.jsdelivr.net/npm/vega-lite@2"&gt;&lt;/script&gt;
+&lt;script src="https://cdn.jsdelivr.net/npm/vega-embed@3"&gt;&lt;/script&gt;
+&lt;script src="https://cdn.jsdelivr.net/npm/frappe-charts@1.1.0/dist/frappe-charts.min.iife.js"&gt;&lt;/script&gt;
+&lt;script src="https://cdn.jsdelivr.net/npm/vega-tooltip@0.6.1"&gt;&lt;/script&gt;
+&lt;link href="https://cdn.jsdelivr.net/npm/vega-tooltip@0.6.1/build/vega-tooltip.min.css" rel="stylesheet" type="text/css"&gt;
+&lt;script src="https://unpkg.com/axios/dist/axios.min.js"&gt;&lt;/script&gt;
+&lt;script src="https://cdn.jsdelivr.net/npm/lodash@4.17.11/lodash.min.js"&gt;&lt;/script&gt;
+
+&lt;title&gt;DUKES charts&lt;/title&gt;
+&lt;style type="text/css"&gt;
+  .graph_box {
+    margin-bottom: 3em;
+  }
+&lt;/style&gt;
+
+</code></pre>
+
+
+<ol start="3">
+<li>Setup the HTML body content</li>
+</ol>
+<p>Put this inside the body element - between the <kbd>&lt;body&gt;</kbd> and <kbd>&lt;/body&gt;</kbd> tags</p>
+<pre><code class="hljs html" data-trim contenteditable>
+
+  &lt;div class="fill"&gt;
+    &lt;section&gt;
+      &lt;div class="page-centered page-main"&gt;
+        &lt;section class="page-content"&gt;
+        &lt;h1&gt;DUKES charts&lt;/h1&gt;
+          &lt;div class="example"&gt;
+            &lt;div class="graph_box view" id="imports_by_fuel_over_time_graph"&gt;&lt;/div&gt;
+            &lt;div class="graph_box view" id="imports_by_fuel_over_time_graph_frappe"&gt;&lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/section&gt;
+      &lt;/div&gt;
+    &lt;/section&gt;
+  &lt;/div&gt;
+
+</code></pre>
+
+
+<ol start="4">
+<li>Define JavaScript variables</li>
+</ol>
+<p>In the head section, right below the other <kbd>&lt;script&gt;</kbd> tags, 
+make another pair of opening and closing <kbd>&lt;script&gt;&lt;/script&gt;</kbd> and 
+copy the following between them:</p>
+<pre><code class="js">
+
+const base_data_url = "http://njs.analysisoncbas.co.uk/";
+let yr_start = 1998, yr_end = 2017;
+let graph_specs = [];
+let vopt = {
+    "mode": "vega-lite",
+    "renderer" : "svg",
+    "actions" : false,
+    "config"    : {autosize: 'pad'}
+};
+
+// this is actually a function call on the vega object that was imported in the HTML head
+vega.scheme('newblues5', ['#072741', '#1A466D', '#32679A', '#4F8AC8', '#70AFF6']);
+
+</code></pre>
+
+<p>As this onle defines some variables and assigns a value to them, nothing is going to be displayed yet.
+In fact, it won't be until step 10 of 12 that we even get data. They <em>are</em> short steps, so it won't take that long.</p>
+<ol start="5">
+<li>Define a helper function to aggregate the long tail of small value fuels into one</li>
+</ol>
+<p>Strictly speaking, this is not necessary. The graph will display without doing this - but it'll simplify it visually. 
+Also, it shows how data wrangling can be done without using things like data frames.
+The technique here is to loop over the response data that the API has returned and do various string manipulations 
+on the fields in each iteration before using a look-up table to reassign some values in the data structure.
+Note that this data structure, in the variable <kbd>resp_data</kbd> is used to pass data into 
+this function and also out of the function. This is known as pass-by-reference or pass-by-sharing. The main alternative 
+is known as pass-by-value and simply copies data, so getting any modified data out of the function again requires the use of a <pre><code class="js">return</code></pre> keyword (followed by whatever you want to return).</p>
+<pre><code class="js">
+
+let aggregate_over_fields = function(fuel_lookup, aggregate_id, use_split_name, resp_data) {
+    let fuel_details, fuel_ref, fuel_name;
+    for (let j = 0; j < resp_data.length; j++) {
+        fuel_details = resp_data[j].fuel.split(':');
+        fuel_ref = parseInt(fuel_details[0]);
+        fuel_name = fuel_details[1];
+
+        if((fuel_lookup[fuel_name] === 0) || (typeof(fuel_lookup[fuel_name]) === 'undefined') ) {
+            resp_data[j].fuel = 'All other fuels';
+            resp_data[j].fuel_index = aggregate_id;
+        } else {
+            resp_data[j].fuel = use_split_name? fuel_name : resp_data[j].fuel;
+            resp_data[j].fuel_index = fuel_lookup[fuel_name];
+        }
+    }
+}
+
+</code></pre>
+
+
+
+<ol start="6">
+<li>Comments for the helper function</li>
+</ol>
+<p>These go above the function defintion - they are comments, so don't do anything except inform.
+However, note the use of two asterisks in the open-comment statement: </p>
+<pre><code class="js">
+/**  */
+</code></pre>
+Only one * is required, so the second * is already part of the comment. This is a bit of extra formatting that is picked up by 
+document generators: it tells them to process this comment as documentation for the function that follows. 
+These consist of a general description line followed by descriptions of each parameter, indicated by the <kbd>@param</kbd> tag.
+There are many other tags available, such as the <kbd>@return</kbd> tag for the value returned.
+
+<pre><code class="js">
+/**
+* 
+* aggregate_over_fields is used to combine some of the small value fuels into an 'All other fuels' category
+* 
+* @param fuel_lookup        object    look-up table of what fuels to group together
+* @param aggregate_id        integer    ID number for elements that have been joined together
+* @param use_split_name        boolean    
+* @param resp_data            array of objects    passed by reference, so changes the calling object
+* 
+*/
+
+// e.g. aggregate_over_fields(fuel_LUT, 0, true, response.data);
+
+</code></pre>
+
+
+
+<ol start="7">
+<li>Define graph_specs object</li>
+</ol>
+<pre><code class="js">
+
+graph_specs.push({
+    title: "Imports by fuel over time",
+    element: "#imports_by_fuel_over_time_graph",
+    type: "imports_by_fuel_over_time",
+    data_url: base_data_url + "energy/dukes/coal/manufactured_fuel/primary_oils/petroleum_products/natural_gas/bioenergy_and_waste/primary_electricity/electricity_aggregate/imports?format=json&unit=original&year_start=" + yr_start + "&year_end=" + yr_end,
+    tooltip_fields: [{field: "fuel", title: "Fuel", formatType: "string"}],
+    vega_spec: {/* will be filled in next */}
+});
+
+</code></pre>
+
+
+
+<ol start="8">
+<li>Define the vega spec
+This block, including the outer '{' and '}', replaces the '{/<em> will be filled in next </em>/}'</li>
+</ol>
+<pre><code class="js">
+
+{   "$schema": "https://vega.github.io/schema/vega-lite/v2.json",
+    "title": null,
+    "data": {"values": null},
+    "transform":[ { "calculate":"'' + datum.year", "as":"Year"} ],
+    "width": 800,
+    "height": 400,
+    "mark": "area",
+    "encoding": {
+        "x": { "timeUnit": "yearmonth", "field": "Year", "type": "temporal",
+                "axis": {"title": "Year", "format": "%Y", "grid": false} },
+        "y": { "aggregate": "sum", "field": "energy", "type": "quantitative", 
+               "axis": {"title": "Energy (ktoe)", "grid": false} },
+        "color": {"field": "fuel", "type": "nominal", 
+                  "scale": {"scheme": "newblues5", "domain": 
+                      ['All other fuels', 'Coal', 'Petroleum products', 'Natural gas', 'Primary oils']}},
+        "order": { "field": "fuel_index", "type": "quantitative", "sort": "descending" }
+    }
+}
+
+</code></pre>
+
+
+
+<ol start="9">
+<li>Loop through the list of graph specifications</li>
+</ol>
+<pre><code class="js">
+
+for (let i = 0; i < graph_specs.length; i++) {
+    // some small housekeeping chores
+    graph_specs[i].vega_spec.title = graph_specs[i].title + " " + yr_start + "-" + yr_end;
+
+    /* this is where the code to get and display the data goes */
+}
+
+</code></pre>
+
+
+
+<ol start="10">
+<li>Request data from API using AJAX</li>
+</ol>
+<pre><code class="js">
+
+axios.get(graph_specs[i].data_url)
+    .then(function (response) {/* code to do something useful with the data goes here */})
+    .catch(function (error) {
+        console.log('ERROR:', graph_specs[i].title);
+        console.log(error);
+    });
+
+</code></pre>
+
+
+
+<ol start="11">
+<li>Wrangle the data</li>
+</ol>
+<pre><code class="js">
+
+let fuel_LUT = {
+                    'Coal': 1,
+                    'Petroleum products': 2,
+                    'Natural gas': 3,
+                    'Primary oils': 4,
+                    'Manufactured fuel': 0,
+                    'Bioenergy and waste': 0,
+                    'Primary electricity': 0,
+                    'Electricity': 0
+                };
+
+aggregate_over_fields(fuel_LUT, 0, true, response.data);
+graph_specs[i].vega_spec.data.values = response.data;
+
+</code></pre>
+
+
+
+<ol start="12">
+<li>Send data, specifications and options to graph object</li>
+</ol>
+<pre><code class="js">
+
+let tooltip_options = {
+    showAllFields: false,
+    fields: [{field: "fuel", title: "Fuel", formatType: "string"}],
+    delay: 80,
+    colorTheme: "light"
+};
+
+vegaEmbed(graph_specs[i].element, graph_specs[i].vega_spec, vopt)
+    .then(function(result) {
+        console.log(result);
+        if(graph_specs[i].tooltip_fields) {
+            tooltip_options.fields = graph_specs[i].tooltip_fields;
+            vegaTooltip.vegaLite(result.view, graph_specs[i].vega_spec, tooltip_options);
+        }
+
+    })
+    .catch(console.error);
+
+</code></pre>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<script>
+    let base_data_url = location.protocol + '//' + location.hostname + (location.port ? ':'+location.port: '') + '/';
+    let yr_start = 1998, yr_end = 2017;
+    let graph_specs = [];
+    let vopt = {
+        "mode": "vega-lite",
+        "renderer" : "svg",
+        "actions" : false,
+        "config"    : {autosize: 'pad'}
+    };
+
+    vega.scheme('newblues5', ['#072741', '#1A466D', '#32679A', '#4F8AC8', '#70AFF6']);
+
+
+    /**
+    * 
+    * aggregate_over_fields is used to combine some of the small value fuels into an 'All other fuels' category
+    * 
+    * @param fuel_lookup        object    look-up table of what fuels to group together
+    * @param aggregate_id        integer    ID number for elements that have been joined together
+    * @param use_split_name        boolean    
+    * @param resp_data            array of objects    passed by reference, so changes the calling object
+    * 
+    */
+
+    //  aggregate_over_fields(fuel_LUT, 0, true, response.data);
+    let aggregate_over_fields = function(fuel_lookup, aggregate_id, use_split_name, resp_data) {
+        let fuel_details, fuel_ref, fuel_name;
+        for (let j = 0; j < resp_data.length; j++) {
+            fuel_details = resp_data[j].fuel.split(':');
+            fuel_ref = parseInt(fuel_details[0]);
+            fuel_name = fuel_details[1];
+
+            if((fuel_lookup[fuel_name] === 0) || (typeof(fuel_lookup[fuel_name]) === 'undefined') ) {
+                resp_data[j].fuel = 'All other fuels';
+                resp_data[j].fuel_index = aggregate_id;
+            } else {
+                resp_data[j].fuel = use_split_name? fuel_name : resp_data[j].fuel;
+                resp_data[j].fuel_index = fuel_lookup[fuel_name];
+            }
+        }
+    }
+
+
+    graph_specs.push({
+        title: "Imports by fuel over time",
+        element: "#imports_by_fuel_over_time_graph",
+        type: "imports_by_fuel_over_time",
+        data_url: base_data_url + "energy/dukes/coal/manufactured_fuel/primary_oils/petroleum_products/natural_gas/bioenergy_and_waste/primary_electricity/electricity_aggregate/imports?format=json&unit=original&year_start=" + yr_start + "&year_end=" + yr_end,
+        tooltip_fields: [{field: "fuel", title: "Fuel", formatType: "string"}],
+        vega_spec: {
+            "$schema": "https://vega.github.io/schema/vega-lite/v2.json",
+            "title": null,
+            "data": {"values": null},
+            "transform":[
+                {
+                    "calculate":"'' + datum.year",
+                    "as":"Year"
+                }
+            ],
+            "width": 700,
+            "height": 350,
+            "mark": "area",
+            "encoding": {
+                "x": {
+                    "timeUnit": "yearmonth", "field": "Year", "type": "temporal",
+                    "axis": {"title": "Year", "format": "%Y", "grid": false}
+                },
+                "y": {
+                    "aggregate": "sum", "field": "energy", "type": "quantitative", "axis": {"title": "Energy (ktoe)", "grid": false}
+                },
+                "color": {"field": "fuel", "type": "nominal", "scale": {"scheme": "newblues5", "domain": ['All other fuels', 'Coal', 'Petroleum products', 'Natural gas', 'Primary oils']}},
+                "order": {
+                    "field": "fuel_index",
+                    "type": "quantitative",
+                    "sort": "descending"
+                }
+            }
+        }
+    });
+
+    for (let i = 0; i < graph_specs.length; i++) {
+        // some small housekeeping chores
+        graph_specs[i].vega_spec.title = graph_specs[i].title + " " + yr_start + "-" + yr_end;
+
+        // get the data from the API
+        axios.get(graph_specs[i].data_url)
+            .then(function (response) {
+                // console.log('response', response);
+                switch(graph_specs[i].type) {
+                    case 'imports_by_fuel_over_time':
+                        let fuel_LUT = {
+                                            'Coal': 1,
+                                            'Petroleum products': 2,
+                                            'Natural gas': 3,
+                                            'Primary oils': 4,
+                                            'Manufactured fuel': 0,
+                                            'Bioenergy and waste': 0,
+                                            'Primary electricity': 0,
+                                            'Electricity': 0
+                                        };
+
+                        aggregate_over_fields(fuel_LUT, 0, true, response.data);
+                        graph_specs[i].vega_spec.data.values = response.data;
+                    break;
+
+                    default:
+                        graph_specs[i].vega_spec.data.values = response.data;
+                    break;
+                }
+
+                let tooltip_options = {
+                    showAllFields: false,
+                    fields: [{field: "fuel", title: "Fuel", formatType: "string"}],
+                    delay: 80,
+                    colorTheme: "light"
+                };
+
+                vegaEmbed(graph_specs[i].element, graph_specs[i].vega_spec, vopt)
+                    .then(function(result) {
+                        console.log(result);
+                        if(graph_specs[i].tooltip_fields) {
+                            tooltip_options.fields = graph_specs[i].tooltip_fields;
+                            vegaTooltip.vegaLite(result.view, graph_specs[i].vega_spec, tooltip_options);
+                        }
+
+                    })
+                    .catch(console.error);
+            })
+            .catch(function (error) {
+                console.log('ERROR:', graph_specs[i].title);
+                console.log(error);
+            });
+    }
+</script>
+</article>
+
+</section>
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-Querify.html">Querify</a></li><li><a href="module-Shapeshifter.html">Shapeshifter</a></li></ul><h3>Tutorials</h3><ul><li><a href="tutorial-01_introduction.html">01. Introduction</a></li><li><a href="tutorial-02_installation.html">02. Installation</a></li><li><a href="tutorial-03_getting_data.html">03. Using the API to get data</a></li><li><a href="tutorial-04_how_it_works.html">04. How it works</a></li><li><a href="tutorial-05_data_structure.html">05. Data structures</a></li><li><a href="tutorial-06_preparing_data.html">06. Preparing stats data for the API</a></li><li><a href="tutorial-07_server.html">07. Updating live server</a></li><li><a href="tutorial-08_ui_landing.html">08. UIs: landing pages</a></li><li><a href="tutorial-09_ui_dd.html">09.  UIs: data downloader</a></li><li><a href="tutorial-10_ui_graphs.html">10. Other UI possibilities: graphs</a></li><li><a href="tutorial-11_a1.html">Annex 1: Design Principles</a></li><li><a href="tutorial-12_a2.html">Annex 2: Engineering Principles</a></li><li><a href="tutorial-13_a3.html">Annex 3: Future Developments</a></li><li><a href="tutorial-14_a4_graphs.html">Annex 4: Graph Examples</a></li></ul><h3>Global</h3><ul><li><a href="global.html#end_timer">end_timer</a></li><li><a href="global.html#finalise_response">finalise_response</a></li><li><a href="global.html#format_yaml">format_yaml</a></li><li><a href="global.html#get_datasets">get_datasets</a></li><li><a href="global.html#normalizePort">normalizePort</a></li><li><a href="global.html#onError">onError</a></li><li><a href="global.html#onListening">onListening</a></li><li><a href="global.html#output_404">output_404</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.5.5</a> on Mon Jan 13 2020 17:36:08 GMT+0000 (Greenwich Mean Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

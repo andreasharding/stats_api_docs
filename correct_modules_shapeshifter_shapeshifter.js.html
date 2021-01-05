@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: correct_modules/shapeshifter/shapeshifter.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: correct_modules/shapeshifter/shapeshifter.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>/** 
+ * A module for creating, manipulating and outputting tree data-structures
+ * @module Shapeshifter 
+ * @version "0.0.24"
+ * @example
+ * // to create a flat tree (easier for lookups, but not like a real tree)
+ * create_flat_tree_array(flat);
+ * // returns an object in flat tree format, which looks like: 
+ * // [{id: "A", children: ["B", "C"], parent: null}]
+*/
+
+
+(function (global, factory) {
+	typeof exports === 'object' &amp;&amp; typeof module !== 'undefined' ? factory(exports) :
+	typeof define === 'function' &amp;&amp; define.amd ? define(['exports'], factory) :
+	(factory((global.Shapeshifter = global.Shapeshifter || {})));
+}(this, (function (exports) {
+// 	'use strict';
+
+	exports.version = "0.0.24";
+
+	/**
+	* returns version number
+	* @return {String}
+	*/
+
+
+	exports.get_version = function() {
+		return version;
+	}
+
+
+
+
+
+
+	/**
+	* Creates an array of objects in a flat arrangement. The hierarchical 
+	* structure is recorded in the item called 'children', which is an array containing 
+	* only the ids of the immediate children. These do not in turn contain their own children.
+	* The overall structure is flat to make it easy to do a linear search rather than having
+	* to do a proper depth- or breadth-first search.
+	*
+	* The first element is assumed to be the root. A future feature will be to incorporate 
+	* some options to add some flexibility to the structures read in and produced.
+	*
+	* The input is a flat-file, probably originally from a csv (parsed separately 
+	* into an array of objects where each element is named according to the csv header)
+	*
+	* @param {array} flat
+	* @return {array}
+	*
+	*/
+
+
+	exports.create_flat_tree_array = function(flat) {
+		var roots = []; // things without parent
+		var all = {};
+
+		flat.forEach(function(item) {
+			all[item.id] = item;
+			all.num_selected = 0;
+			all.selected = false;
+			all.open = false;
+		})
+
+		// connect children to its parent, and split roots apart
+		Object.keys(all).forEach(function (id) {
+			var item = all[id];
+			if ((item.parent === null) || (item.parent === '')) {
+				roots.push(item);
+			} else if (item.parent in all) {
+				var p = all[item.parent];
+				if (!('children' in p)) {
+					p.children = [];
+				}
+				p.children.push(item.id);
+				roots.push(item);
+			}
+		});
+
+		return roots;
+	}
+
+
+
+
+
+
+	/**
+	* Creates a object representing a flat arrangement of objects. The hierarchical 
+	* structure is recorded in the item called 'children', which is an array containing 
+	* only the ids of the immediate children. These do not in turn contain their own children.
+	* The overall structure is flat to make it easy to do a linear search rather than having
+	* to do a proper depth- or breadth-first search.
+	*
+	* The first element is assumed to be the root. A future feature will be to incorporate 
+	* some options to add some flexibility to the structures read in and produced.
+	*
+	* The input is a flat-file, probably originally from a csv (parsed separately 
+	* into an array of objects where each element is named according to the csv header)
+	*
+	* @param {array} flat
+	* @return {object}
+	*
+	*/
+
+
+	exports.create_flat_tree = function(flat_x, options) {
+		var flat_tree = {};
+		if (typeof(options) == 'undefined') {
+			options = {
+				root: 0,      // root is where to look for root element
+				id: "id",     // what does parent refer to? id field - provide name if not called id
+				title: "name" // which field is the main name?
+			};
+		}
+		
+		// use presence of 'push' function to determine if an Array or Object
+		if (typeof(flat_x.push) == 'function') {
+			// Array
+			flat_x.forEach(function(item) {
+				flat_tree[item[options.id]] = item;
+				if (typeof(flat_tree[item[options.id]]["num_selected"]) == 'undefined') flat_tree[item[options.id]]["num_selected"] = 0;
+				if (typeof(flat_tree[item[options.id]]["selected"]) == 'undefined') flat_tree[item[options.id]]["selected"] = false;
+				if (typeof(flat_tree[item[options.id]]["open"]) == 'undefined') flat_tree[item[options.id]]["open"] = false;
+				if (typeof(flat_tree[item[options.id]]["children"]) == 'undefined') flat_tree[item[options.id]]["children"] = [];
+
+				if (options.title != "title") {
+					flat_tree[item[options.id]]["title"] = item[options.title];
+					// now need to delete previous entry at flat_tree[item[options.id]][options.title]
+				}
+			});
+			
+		} else {
+			// Object
+			
+			Object.keys(flat_x).forEach(function(item) {
+				flat_tree[item] = flat_x[item];
+				if (typeof(flat_tree[item]["num_selected"]) == 'undefined') flat_tree[item]["num_selected"] = 0;
+				if (typeof(flat_tree[item]["selected"]) == 'undefined') flat_tree[item]["selected"] = false;
+				if (typeof(flat_tree[item]["open"]) == 'undefined') flat_tree[item]["open"] = false;
+				if (typeof(flat_tree[item]["children"]) == 'undefined') flat_tree[item]["children"] = [];
+
+				if (options.title != "title") {
+					flat_tree[item]["title"] = flat_tree[item][options.title]; //flat_tree[item]["title"] = flat_tree[item[options.id]][options.title];
+					// now need to delete previous entry at flat_tree[item[options.id]][options.title]
+				}
+			});
+			
+		}
+		
+		
+		if (options.root != 0) {
+			//move item flat_csv[root] to front, so it becomes the first item
+		}
+
+
+		// connect children to its parent, and split roots apart
+		Object.keys(flat_tree).forEach(function (id) {
+			var item = flat_tree[id];
+			if ((item.parent === null) || (item.parent === '')) {
+				// Empty block statement here - space reserved for future use...
+			} else if (item.parent in flat_tree) {
+				var p = flat_tree[item.parent];
+				if (!('children' in p)) {
+					p.children = [];
+				}
+				p.children.push(item.id);
+			}
+		});
+
+		return flat_tree;
+	}
+
+
+
+	/**
+	 * Recursively go through tree
+	 * 
+	 * @param {Object} tree: the main tree structure, which must be single-rooted
+	 * @param {Object} nodes: the output structure for collecting data
+	 * 
+	*/
+	
+	exports.collect_nodes = function(tree, nodes) {
+		var top_level_keys = _.remove(Object.keys(tree), function(n) {
+			return n !== 'attributes';
+		});
+		
+		while(top_level_keys.length > 0) {
+			next = top_level_keys.pop();
+			nodes[next] = tree[next].attributes;
+			exports.collect_nodes(tree[next], nodes);
+		}
+	}
+
+
+
+
+
+
+
+	/**
+	 * Takes a tree object in hierarchical format and converts it to a flat tree.
+	 * Two types of hierarchical tree may be presented: either with a single element that is considered the root,
+	 * or where the tree object has an implicit root being the hierarchical_tree object itself, 
+	 * in which case a root is automatically generated, and the attributes in 
+	 * 
+	 * @param {Object} hierarchical_tree: the main tree structure, which may or may not be single-rooted
+	 * @param {Object} root_attributes: this has the associated attributes for any automatically generated root node
+	 * @return {Object} flat_tree
+	 * 
+	*/
+
+
+	exports.flatten_tree = function(hierarchical_tree, root_attributes) {
+
+		var flat_tree = {}, root_node;
+		
+		if (typeof(root_attributes) == 'undefined') {
+			root_node = {
+				root: 0,      	// root is where to look for root element
+				id: "id",		// what does parent refer to? id field - provide name if not called id
+				title: "name",	// which field is the main name?
+				children: [],
+				hierarchy: [],
+				parent: null,
+				id: "",
+				label: "",
+				name: "",
+				category: null
+			};
+		} else {
+			root_node = _.clone(root_attributes);
+		}
+		
+		var top_level_keys = Object.keys(hierarchical_tree);
+		if (top_level_keys.length == 1) {
+			root_node = hierarchical_tree[top_level_keys[0]];
+			collect_nodes(root_node, flat_tree);
+			flat_tree[root_node.id] = root_node;
+			
+		} else {
+			top_level_keys.forEach(function(item) {
+				collect_nodes(hierarchical_tree[item], flat_tree);
+			});
+		}
+
+		return flat_tree;
+	}
+
+
+
+
+
+
+
+
+
+
+
+	/**
+	* Creates a hierarchically structured array of objects, that each have an item
+	* called 'children', which is an array containing immediate children. These in turn
+	* can contain their own children.
+	*
+	* The input is a flat-file, probably originally from a csv (parsed separately 
+	* into an array of objects where each element is named according to the csv header)
+	*
+	* @param {array} flat
+	* @return {array}
+	*
+	*/
+
+
+	exports.create_tree = function(flat) {
+		var roots = []; // things without parent
+
+		// make them accessible by id on this map
+		var all = {};
+		flat.forEach(function(item) {
+			all[item.id] = item;
+		})
+
+		// connect children to its parent, and split roots apart
+		Object.keys(all).forEach(function (id) {
+			var item = all[id];
+			if ((item.parent === null) || (item.parent === '')) {
+				roots.push(item);
+			} else if (item.parent in all) {
+				var p = all[item.parent];
+				if (!('children' in p)) {
+					p.children = [];
+				}
+				p.children.push(item);
+			}
+		});
+
+		return roots;
+	}
+
+
+	/**
+	* Recursively adds child nodes to tree
+	* @param {Object} tree
+	* @param {String} t source node for link
+	* @param {Object} nodes Array of nodes - uses pass-by-reference
+	* @param {Object} links Array of links - uses pass-by-reference
+	* @param {Integer} l Level number
+	*
+	*/
+
+	exports.add_child_nodes = function(tree, t, nodes, links, l) {
+			var children = _.without(Object.keys(tree), 'attributes');
+			if (typeof(tree['children']) != 'undefined') {
+				children = tree.children;
+				exports.add_child_nodes(children, t, nodes, links, l+1);
+			} else {
+				if (children.length > 0) {
+					children.forEach(function (c) {
+						nodes.push({"id": c, "name": c, level: l});
+						links.push({"source": t, "target": c, "value": 1});
+					});
+				}
+			}
+	}
+
+
+
+	/**
+	* Creates the source and links type structure for a force-directed graph.
+	* The input is a tree, with a children array containing nodes
+	* @param {array|Object} tree
+	* @return {Object}
+	*
+	*/
+
+	exports.create_fdg_from_tree = function(tree) {
+		var nodes = [], links = [], nd = {}, lk = {}, node_lut = {}, current_node, current_node_pos;//, levels = []
+		var top_level = Object.keys(tree), root, children;
+		if (top_level.length > 1) {
+			top_level.forEach(function (t) {
+				if (typeof(root) == 'undefined') {
+					root = tree[t].attributes.parent;
+				}
+			});
+		} else {
+			if (top_level.length == 1) {
+				root = top_level[0];
+			}
+		}
+		
+		nodes.push({"id": root, "name": root, level: 0});
+		top_level.forEach(function (t) {
+			nodes.push({"id": t, "name": t, level: 1});
+			links.push({"source": root, "target": t, "value": 1});
+			// children = tree[t].attributes.children;
+			children = _.without(Object.keys(tree[t]), 'attributes');
+			children.forEach(function (c) {
+				nodes.push({"id": c, "name": c, level: 2});
+				links.push({"source": t, "target": c, "value": 1});
+				exports.add_child_nodes(tree[t][c], c, nodes, links, 3);
+			});
+			
+		});
+		
+				
+		return {"nodes": nodes, "links": links};
+	}
+
+
+	/**
+	* Creates the source and links type structure for a force-directed graph.
+	* The input is a flat-file, probably originally from a csv (parsed separately 
+	* into an array of objects where each element is named according to the csv header)
+	* @param {array|Object} flat
+	* @return {Object}
+	*
+	*/
+
+
+	exports.create_fdg = function(flat) {
+		var nodes = [], links = [], nd = {}, lk = {}, node_lut = {}, current_node, current_node_pos;//, levels = []
+				
+		var create_fdg_element = function(d, i) {
+			Object.keys(d).forEach(function (r) {
+				nd[r] = d[r];
+			});
+			if ((d.parent != "") &amp;&amp; (d.parent != null))  {
+				lk = {"source": d.parent, "target": d.id, "value": 1};
+				links.push(lk);
+				lk = {};
+				nd.level = null;// insert entry for level - update in phase 2
+			} else {
+				nd.level = 0;
+				// assume there is only one root, otherwise would need to push
+				current_node = d.id;
+				current_node_pos = i;
+			}
+
+			nodes.push(nd);
+			nd = {};
+
+			node_lut[d.id] = i;
+		}
+		
+		// use presence of 'push' function to determine if an Array or Object
+		if (typeof(flat.push) == 'function') {
+			// Array
+			flat.forEach(function(d, i) {
+				create_fdg_element(d, i);
+			});
+		} else {
+			// Object
+			Object.keys(flat).forEach(function (d, i) {
+				create_fdg_element(flat[d], i);
+			});
+		}
+		
+		
+		// This section works out the level of each node ////////////////////////////////
+
+		function calculate_levels(top_nodes, remaining_nodes, curr_level, curr_node, curr_node_pos) {
+			var next_nodes = [], lower_nodes = [], next_node_id, this_level;
+			if (typeof(top_nodes[curr_node_pos]) != 'undefined') {
+				console.log(top_nodes[curr_node_pos]);
+			} else {
+				console.log(top_nodes, curr_node_pos);
+			}
+			var parent_id = node_lut[top_nodes[curr_node_pos].parent];
+
+			if (typeof(parent_id) != 'undefined') {
+				this_level = top_nodes[parent_id].level + 1;
+			} else {
+				this_level = 0;
+			}
+			
+			top_nodes[curr_node_pos].level = this_level;
+
+			remaining_nodes.forEach(function(n) {
+				if (top_nodes[n].parent == curr_node) {
+					next_nodes.push(n);
+				} else {
+					lower_nodes.push(n);
+				}
+			});
+
+			next_nodes.forEach(function() {
+				curr_node_pos = remaining_nodes.splice(0, 1);
+				next_node_id = top_nodes[curr_node_pos[0]].id;
+				calculate_levels(top_nodes, remaining_nodes, this_level, next_node_id, curr_node_pos[0]);
+			});
+		}
+		
+		//construct array of node-ids, other than that of the root node, to search
+		// do this by creating all ids for nodes array, then removing the root id
+		var node_ids = [];
+		for (var i = 0; i &lt; nodes.length; i++) {
+			node_ids.push(i);
+		}
+		node_ids.splice(current_node_pos, 1);
+		calculate_levels(nodes, node_ids, 0, current_node, current_node_pos);////////
+
+		return {"nodes": nodes, "links": links};
+	}
+
+
+
+
+
+
+	/**
+	 * Aims to return the highest node in the tree that is complete 
+	 * (i.e. if all node X's child nodes have been selected, node X is returned).
+	 * Does this by recursively, using pass by sharing (like reference) to return values to caller
+	 * @param {array} node_list
+	 * @param {array} selected_children
+	 * @param {array} clear_children
+	 * 
+	*/
+
+
+	exports.tree_search = function(node_list, selected_children, clear_children) {
+		var root, i, current_node;
+		
+		if (clear_children.length > 0) {
+			root = clear_children.shift();
+			current_node = node_list[root];
+
+			// first check the root node itself is clear - otherwise no need to search any more - just add root node and return.
+			if (current_node.selected) {
+				selected_children.push(root);
+				return;
+			}
+
+			for (i = 0; i &lt; current_node.children.length; i++) {
+				if (node_list[current_node.children[i]].selected) {selected_children.push(current_node.children[i])} else {clear_children.push(current_node.children[i])}
+			}
+			if (clear_children.length > 0) {
+				// making a recursive call here makes this a depth-first search, but only on branches that are clear
+				for (i = 0; i &lt; clear_children.length; i++) {
+					tree_search(node_list, selected_children, [clear_children[i]]);
+				}
+				return;
+			} else {
+				// no recursive call needed
+				return;
+			}
+		} else {
+			//nothing to do, so return
+			return;
+		}
+	}
+
+
+
+
+
+
+
+
+
+	/**
+	 * Returns an array of all the leaf nodes below the selected node. If the selected node 
+	 * itself happens to be a leaf node, this will return an array containing that node (as
+	 * it is indeed a leaf node).
+	 * Does this by recursively, using pass by sharing (like reference) to return values to caller
+	 * @param {array} node_list
+	 * @param {array} unsearched_nodes
+	 * 
+	*/
+
+
+	exports.leaf_collect = function(node_list, selected_node, code) {
+		var i, children = JSON.parse(JSON.stringify(node_list[selected_node].children)), leaf_nodes = [];
+		if (children.length == 0) {
+			if ((typeof(code) == 'undefined') || (node_list[selected_node].code == code)) {
+				leaf_nodes.push(selected_node);
+			}
+		} else {
+			for (i = 0; i &lt; children.length; i++) {
+				leaf_nodes = leaf_nodes.concat( JSON.parse(JSON.stringify(leaf_collect(node_list, children[i], code))) );
+			}
+		}
+		return leaf_nodes;
+	}
+
+
+
+
+
+
+
+	/**
+	 * Returns the number of children below a particular node. This means all nodes below it.
+	 * Unlike leaf_collect, this includes non-leaf children. If the selected node happens 
+	 * to be a leaf node, this will return an empty array.
+	 * Does this by recursively, using pass by sharing (like reference) to return values to caller
+	 * Note that in order to prevent double counting, it must maintain two lists - one to loop, 
+	 * and another to accumulate. Otherwise, it would be adding visited nodes to the list 
+	 * of unvisited nodes.
+	 * 
+	 * @param {array} node_list
+	 * @param {array} selected_node
+	 * @return {array} accumulated child nodes
+	 * 
+	*/
+
+
+	exports.child_collect = function(node_list, selected_node) {
+		var i, children = JSON.parse(JSON.stringify(node_list[selected_node].children));
+		var offspring = JSON.parse(JSON.stringify(children));
+		for (i = 0; i &lt; children.length; i++) {
+			offspring = offspring.concat(child_collect(node_list, children[i]));
+		}
+		return offspring;
+	}
+
+
+
+
+	/**
+	 * Returns the non-leaf children below a particular node.
+	 * Unlike child_collect, this excludes leaf children. If the selected node happens 
+	 * to be a leaf node, this will return an empty array.
+	 * Does this by recursively, using pass by sharing (like reference) to return values to caller
+	 * Note that in order to prevent double counting, it must maintain two lists - one to loop, 
+	 * and another to accumulate. Otherwise, it would be adding visited nodes to the list 
+	 * of unvisited nodes.
+	 * 
+	 * @param {array} node_list
+	 * @param {array} selected_node
+	 * @return {array} accumulated child nodes
+	 * 
+	*/
+
+
+	exports.branch_child_collect = function(node_list, selected_node, include_root) {
+		// console.log(selected_node);
+		if (typeof(include_root) == 'undefined') {include_root = false;}
+		var i, children = JSON.parse(JSON.stringify(node_list[selected_node].children)), non_leaf_nodes = [];
+		if (children.length != 0) {
+			if (include_root) non_leaf_nodes.push(selected_node);
+			for (i = 0; i &lt; children.length; i++) {
+				non_leaf_nodes = non_leaf_nodes.concat( JSON.parse(JSON.stringify(branch_child_collect(node_list, children[i], true))) );
+			}
+		}
+		return non_leaf_nodes;
+	}
+
+
+
+
+
+	/**
+	 * Marks a node as selected - NB this doesn't need to update the UI, so is slightly different to client-side version
+	 * @param {Object} node_list
+	 * @param {string} node_list_root
+	 * @param {string} selected_node
+	 * 
+	*/
+
+
+	exports.select_node = function(node_list, node_list_root, selected_node) {
+		var allow_parent_node_completion = false; // semi-permanent way of disabling the use of parent node to replace complete set of selected child nodes
+		node_list[selected_node].selected = true;
+		var par = node_list[selected_node].parent;
+		if ((par != null) &amp;&amp; (par != '')) {
+			node_list[par].num_selected++;
+			if (allow_parent_node_completion) {
+				if (node_list[par].num_selected == node_list[par].children.length) {
+					node_list[par].selected = true;
+				}
+			}
+		}
+	}
+
+
+
+
+
+	/**
+	 * Simple inclusion test - versions available elsewhere too
+	 * @param {array|string} arr - array or string that may contain the object searched for
+	 * @return {number} - where the object is in the array or string, or -1 if not present
+	 * 
+	*/
+
+	exports.include = function(arr,obj) {
+		return (arr.indexOf(obj) != -1);
+	}
+
+
+
+
+
+	/**
+	 * Iterates through node_list and resets various properties to their base setting
+	 * @param {array} node_list
+	 * 
+	*/
+
+
+	exports.reset = function(node_list) {
+		var i, node_list_keys;
+
+		node_list_keys = Object.keys(node_list);
+		for (i = 0; i &lt; node_list_keys.length; i++) {
+			node_list[node_list_keys[i]].selected = false;
+			node_list[node_list_keys[i]].num_selected = 0;
+			node_list[node_list_keys[i]].open = false;
+		}
+	}
+
+
+
+
+
+
+	Object.defineProperty(exports, '__esModule', { value: true });
+
+})));
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-Querify.html">Querify</a></li><li><a href="module-Shapeshifter.html">Shapeshifter</a></li></ul><h3>Tutorials</h3><ul><li><a href="tutorial-01_introduction.html">01. Introduction</a></li><li><a href="tutorial-02_installation.html">02. Installation</a></li><li><a href="tutorial-03_getting_data.html">03. Using the API to get data</a></li><li><a href="tutorial-04_how_it_works.html">04. How it works</a></li><li><a href="tutorial-05_data_structure.html">05. Data structures</a></li><li><a href="tutorial-06_preparing_data.html">06. Preparing stats data for the API</a></li><li><a href="tutorial-07_server.html">07. Updating live server</a></li><li><a href="tutorial-08_ui_landing.html">08. UIs: landing pages</a></li><li><a href="tutorial-09_ui_dd.html">09.  UIs: data downloader</a></li><li><a href="tutorial-10_ui_graphs.html">10. Other UI possibilities: graphs</a></li><li><a href="tutorial-11_a1.html">Annex 1: Design Principles</a></li><li><a href="tutorial-12_a2.html">Annex 2: Engineering Principles</a></li><li><a href="tutorial-13_a3.html">Annex 3: Future Developments</a></li><li><a href="tutorial-14_a4_graphs.html">Annex 4: Graph Examples</a></li></ul><h3>Global</h3><ul><li><a href="global.html#end_timer">end_timer</a></li><li><a href="global.html#finalise_response">finalise_response</a></li><li><a href="global.html#format_yaml">format_yaml</a></li><li><a href="global.html#get_datasets">get_datasets</a></li><li><a href="global.html#normalizePort">normalizePort</a></li><li><a href="global.html#onError">onError</a></li><li><a href="global.html#onListening">onListening</a></li><li><a href="global.html#output_404">output_404</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.5.5</a> on Mon Jan 13 2020 17:36:08 GMT+0000 (Greenwich Mean Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

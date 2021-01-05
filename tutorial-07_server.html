@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Tutorial: 07. Updating live server</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Tutorial: 07. Updating live server</h1>
+
+    <section>
+
+<header>
+    
+
+    <h2>07. Updating live server</h2>
+</header>
+
+<article>
+    <link rel="stylesheet" href="./api.css">
+
+<p>This uses the uploading of new data for BPE as an example</p>
+<ol>
+<li>Before you can do anything, you'll need to log into the server.</li>
+</ol>
+<p>The username is given as <code>username</code> in the commands below. Please substitute actual username for this. <br />
+(The actual username and password, obviously won't be given here)<br /></p>
+<p>You'll need to use <code>ssh</code> to connect. PuTTY on Windows establishes a ssh connection too, but this example uses the Linux/MacOSX command line version. Once you have logged in, you're in Linux anyway, so it makes no difference how you get there!<br /></p>
+<div class="warning">
+You can't make an ssh (PuTTY) connection from CBAS. It isn't allowed, so you'll have to move all the files to a different machine and ssh from there.
+One such machine that the CBAS team have set up is a virtual machine specifically designed for connecting to the server. 
+Please ask them how to connect to this machine and copy files to it.
+</div>
+<br />
+<kbd class="route">ssh -l username -p 444 212.22.7.42</kbd><br />
+
+2. Make a new directory on the server for BPE files to be uploaded to. This directory can be deleted later if you want. <br />
+
+<kbd class="route">mkdir BPE</kbd><br />
+<br />
+
+3. Then in a different terminal, copy files to this directory (In Windows, this is all done using a different program anyway: WinSCP)
+<br />
+You may want to compress all the files into one archive file before uploading using a CLI. It is optional, but might be convenient, if using a GUI tool like WinSCP.
+For BPE the data was put into one file, whilst code updates were put into another:<br />
+
+<kbd class="route">cd ~/path/to/local/files/</kbd><br />
+<kbd class="route">tar -cvzf BPE_data.tar.gz BPE_data</kbd><br />
+<kbd class="route">tar -cvzf BPE_server.tar.gz BPE_server</kbd><br />
+
+<kbd class="route">scp -P 444 ~/path/to/local/files/BPE_data.tar.gz <a href="mailto:username@212.22.7.42">username@212.22.7.42</a>:~/BPE/</kbd><br />
+<kbd class="route">scp -P 444 ~/path/to/local/files/BPE_server.tar.gz <a href="mailto:username@212.22.7.42">username@212.22.7.42</a>:~/BPE/</kbd><br />
+<br />
+
+4. back in the ssh terminal (or log in to the server again)<br />
+Go into the directory where the files have been transferred to, and unpack:<br />
+
+<kbd class="route">cd ~/BPE</kbd><br />
+<kbd class="route">tar -xvf BPE_data.tar.gz</kbd><br />
+<kbd class="route">tar -xvf BPE_server.tar.gz</kbd><br />
+<br />
+
+5. within each directory, tidy up by removing all the cruft OSX introduces (not necessary if files transferred from Windows)<br />
+
+<kbd class="route">rm ._*.csv</kbd><br />
+<kbd class="route">rm ._*.js</kbd><br />
+<kbd class="route">rm ._*.html</kbd><br />
+<kbd class="route">rm ._*.json</kbd><br />
+<kbd class="route">rm .DS_Store</kbd><br />
+<kbd class="route">rm ._.DS_Store</kbd><br />
+
+or this may be better...<br />
+<kbd class="route">rm ._*.*</kbd><br />
+<br />
+
+6. Now go into the directory containing the api code:<br />
+<kbd class="route">cd current_API/API/</kbd><br />
+<br />
+
+7. quit current running API in tmux<br />
+tmux (terminal multiplexer) runs a virtual terminal on Linux. 
+If you don't use this or something similar, when you quit your ssh terminal session, any code you were running will terminate. 
+This includes the API, so you have to find a way of keeping it running once you disconnect. 
+By starting the API within a virtual terminal using tmux, you avoid this problem. 
+(On CBAS, the development server does not have tmux installed, so you have to put the API into the background by appending <kbd class="route">&amp; disown</kbd> to the command that starts the API code)<br />
+<kbd class="route">tmux a -t 0</kbd> - attach to the virtual terminal, numbered 0 here<br />
+<br />
+
+8. then <kbd class="route">ctrl-C</kbd> to quit API, followed by <kbd class="route">ctrl-B</kbd> then <kbd class="route">d</kbd> to disconnect tmux<br />
+<br />
+
+9. backup, just in case<br />
+<kbd class="route">mv api_app.js bk_api_app_dec19.js</kbd><br />
+<br />
+
+10. get updated code<br />
+<kbd class="route">mv ~/BPE/BPE_server/api_app.js ./api_app.js</kbd><br />
+<br />
+
+11. change deploy_mode flag to true (on line 26)<br />
+<kbd class="route">nano api_app.js</kbd><br />
+<br />
+
+12. save and quit (<kbd class="route">ctrl-O</kbd> then <kbd class="route">ctrl-X</kbd>)<br />
+<br />
+
+13. move other files into place:<br />
+(these are just the files required in this particular case; in other situations adjust this list as necessary!)<br />
+
+<kbd class="route">mv ~/BPE/BPE_server/api_app.js ./api_app.js</kbd><br />
+<kbd class="route">mv ~/BPE/BPE_server/bpe.html ~/current_API/API/UI/business/data/bpe.html</kbd><br />
+<kbd class="route">mv ~/BPE/BPE_server/bpetime.html ~/current_API/API/UI/business/data/bpetime.html</kbd><br />
+<kbd class="route">mv ~/BPE/BPE_server/data_selector_ui.js ~/current_API/API/UI/business/data/js/data_selector_ui.js</kbd><br />
+<kbd class="route">mv ~/BPE/BPE_server/index.html ~/current_API/API/UI/business/manual/index.html</kbd><br />
+<kbd class="route">mv ~/BPE/BPE_server/qs_specification_all.json ~/current_API/API/prefs/qs_specification_all.json</kbd><br />
+<kbd class="route">mv ~/BPE/BPE_server/querify.js ~/current_API/API/node_modules/querify/querify.js</kbd><br />
+<br />
+<kbd class="route">scp -P 444 <a href="mailto:username@212.22.7.42">username@212.22.7.42</a>:~/current_API/API/node_modules/querify/querify.js ~/path/to/local/files/temp</kbd><br />
+<kbd class="route">scp -P 444 <a href="mailto:username@212.22.7.42">username@212.22.7.42</a>:~/current_API/API/node_modules/shapeshifter/shapeshifter.js ~/path/to/local/files/temp</kbd><br />
+<br />
+
+14. BPE_last_minute_tweaks! <br />
+Edited HTML files are directly replaced using scp to overwrite the files already on the server<br />
+
+<kbd class="route">scp -P 444 ~/path/to/local/files/BPE_last_minute_tweaks/bpe.html <a href="mailto:username@212.22.7.42">username@212.22.7.42</a>:~/current_API/API/UI/business/data/</kbd><br />
+<kbd class="route">scp -P 444 ~/path/to/local/files/BPE_last_minute_tweaks/bpetime.html <a href="mailto:username@212.22.7.42">username@212.22.7.42</a>:~/current_API/API/UI/business/data/</kbd><br />
+<br />
+<div class="warning">
+scp assumes you know what you are doing and will overwrite files without warning you first, so be careful.
+</div>
+</article>
+
+</section>
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-Querify.html">Querify</a></li><li><a href="module-Shapeshifter.html">Shapeshifter</a></li></ul><h3>Tutorials</h3><ul><li><a href="tutorial-01_introduction.html">01. Introduction</a></li><li><a href="tutorial-02_installation.html">02. Installation</a></li><li><a href="tutorial-03_getting_data.html">03. Using the API to get data</a></li><li><a href="tutorial-04_how_it_works.html">04. How it works</a></li><li><a href="tutorial-05_data_structure.html">05. Data structures</a></li><li><a href="tutorial-06_preparing_data.html">06. Preparing stats data for the API</a></li><li><a href="tutorial-07_server.html">07. Updating live server</a></li><li><a href="tutorial-08_ui_landing.html">08. UIs: landing pages</a></li><li><a href="tutorial-09_ui_dd.html">09.  UIs: data downloader</a></li><li><a href="tutorial-10_ui_graphs.html">10. Other UI possibilities: graphs</a></li><li><a href="tutorial-11_a1.html">Annex 1: Design Principles</a></li><li><a href="tutorial-12_a2.html">Annex 2: Engineering Principles</a></li><li><a href="tutorial-13_a3.html">Annex 3: Future Developments</a></li><li><a href="tutorial-14_a4_graphs.html">Annex 4: Graph Examples</a></li></ul><h3>Global</h3><ul><li><a href="global.html#end_timer">end_timer</a></li><li><a href="global.html#finalise_response">finalise_response</a></li><li><a href="global.html#format_yaml">format_yaml</a></li><li><a href="global.html#get_datasets">get_datasets</a></li><li><a href="global.html#normalizePort">normalizePort</a></li><li><a href="global.html#onError">onError</a></li><li><a href="global.html#onListening">onListening</a></li><li><a href="global.html#output_404">output_404</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.5.5</a> on Mon Jan 13 2020 17:36:08 GMT+0000 (Greenwich Mean Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

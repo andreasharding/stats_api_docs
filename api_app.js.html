@@ -1,0 +1,1699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: api_app.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: api_app.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>'use strict';
+
+//////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////// IMPORT MODULES ////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////
+
+const restify = require('restify');
+const promise = require('bluebird');
+const now = require("performance-now");
+const shapeshifter = require('./node_modules/shapeshifter/shapeshifter');
+const querify = require('./node_modules/querify/querify');
+const url_o = require('url');
+const _ = require('lodash');
+const jd = require('jsdataframe');
+const Papa = require('papaparse');
+const corsMiddleware = require('restify-cors-middleware');
+const winston = require('winston');
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////// GLOBALS ////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////
+
+const version = '0.0.24';
+var datasets, tables, qs_specification_all, start, end, deploy_mode = false, test_mode = true; // Google Analytics and postgres log-in details etc.
+var org_name = 'BEIS';
+var returned_data = [];
+var cn; // Database connection details;
+
+if (deploy_mode) {
+	cn = {
+		host: 'localhost', // 'localhost' is the default;
+		port: 5432, // 5432 is the default;
+		database: 'njsadmin',
+		user: 'nodejs',
+		password: 'MhLezfZygyV5'
+	};
+} else {
+    if (test_mode) {
+        cn = {
+            host: 'localhost', // 'localhost' is the default;
+            port: 5432, // 5432 is the default;
+            database: 'andreasharding',
+            user: 'andreasharding',
+            password: ''
+        };
+    } else {
+        cn = {
+            host: 'CBAS-PDPG-01', // 'localhost' is the default;
+            port: 5432, // 5432 is the default;
+            database: 'STATSAPI-WKG',
+            user: 'aharding',
+            password: 'RedGreenBlue111()'
+        };
+	}
+
+	//for big laptop
+// 	cn = {
+// 		host: 'localhost', // 'localhost' is the default;
+// 		port: 5432, // 5432 is the default;
+// 		database: 'cbasuser',
+// 		user: 'nodejs',
+// 		password: 'MhLezfZygyV5'
+// 	};
+}
+
+const options = {
+	promiseLib: promise // overriding the default (ES6 Promise);
+};
+
+const pgp = require('pg-promise')(options);
+const db = pgp(cn); // database instance;
+
+var fs = promise.promisifyAll(require("fs"));
+
+
+
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////  UTILITIES  /////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////
+
+
+// logging uses winston v2.4.0 - should upgrade to v3 when stable
+// NB bunyan was being difficult in restify > v5
+var logger = new (winston.Logger)({
+	transports: [
+		// new (winston.transports.Console)(),
+		new (winston.transports.File)({ filename: './log/BEIS_data.log' })
+	]
+});
+
+
+
+
+/**
+ * end_timer
+ * =========
+ * 
+ * Marks endpoint of timing and outputs duration since start to console
+ * 
+*/
+
+function end_timer(msg) {
+	end = now();
+	console.log(msg + ' duration (ms)', (end - start).toFixed(3));
+}
+
+
+
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////// INPUT CLEANING  AND QUERY CONSTRUCTION /////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////
+
+
+/*
+ * 1. sanitize inputs
+ * 2. de-dupe routing parameters
+ * 3. consolidate query parameters (may be OK to repeat these - ?)
+ * 4. enter into tree
+ * 5. construct SQL and send off query
+ *
+*/
+
+// sanitize_input
+// This goes through the dimensions Objects testing for a match.
+// If it finds a match it adds it to an array of acceptable dimensions, such as energies or flows,
+// or logs any bad parameters. Then does similar for query strings
+
+function sanitize_input(raw_routes, raw_qs, dataset_ref) {
+	var dimensions = dataset_ref.dimensions;
+	
+	if (typeof(dimensions) == 'undefined') dimensions = [];
+	
+	start = now();
+
+	var qs_specification = {}; // NB _.merge mutates the first parameter, so cannot do var qs_specification = _.merge(qs_specification_all.generic, qs_specification_all[dataset_ref.table_name]);
+	_.merge(qs_specification, qs_specification_all.generic, qs_specification_all[dataset_ref.table_name]);
+	var acceptable_qs = Object.keys(qs_specification);
+		
+	var clean_input = {
+			table_name: dataset_ref.table_name,
+			good_routes: {}, 
+			bad_routes: [], 
+			good_query_strings: {}, 
+			bad_query_strings: [], 
+			missing_query_strings: {}
+	}
+	
+	
+	try {
+		dimensions.forEach(function(e) {
+			clean_input.good_routes[e] = [];
+		});
+		
+		
+		// match routing parameters (strict equality - no fuzzy matching!)
+		var temp_good_routes = [];
+		for (var k = 0; k &lt; dimensions.length; k++){
+			for (var j = 0; j &lt; dataset_ref[dimensions[k]].length; j++) {
+				for (var i = 0; i &lt; raw_routes.length; i++) {
+					if (raw_routes[i] == dataset_ref[dimensions[k]][j].id) {
+						clean_input.good_routes[dimensions[k]].push(raw_routes[i]);
+						temp_good_routes.push(raw_routes[i]);
+						break;
+					}
+				}
+			}
+		}
+				
+		if (raw_routes.length != temp_good_routes.length) {
+			clean_input.bad_routes = _.difference(raw_routes, temp_good_routes);
+		}
+				
+		// match query strings
+		
+		var qsk = Object.keys(raw_qs);
+		
+		qsk.forEach(function(e) {
+			if (!shapeshifter.include(acceptable_qs, e)) {
+				clean_input.bad_query_strings.push(e);
+			}
+		});
+		
+		acceptable_qs.forEach(function(e) {
+			if (shapeshifter.include(qsk, e)) {
+				clean_input.good_query_strings[e] = null;
+			} else {
+				if (qs_specification[e].required) {
+					clean_input.missing_query_strings[e] = qs_specification[e].fallback;// this includes both missing and malformed query strings
+				}
+			}
+		});
+		
+						
+		Object.keys(clean_input.good_query_strings).forEach(function(e) {
+			var qs_values;
+			
+			// wrap up each query string into an array to allow for multiples
+			if (qs_specification[e].multiple) {
+				if (typeof(raw_qs[e]) == 'string') {
+					if (raw_qs[e].indexOf('~') > -1) {
+						qs_values = raw_qs[e].split('~');
+					} else {
+						qs_values = [raw_qs[e]];// even though multiples may be allowed, must accept singular too
+					}
+				} else if(typeof(raw_qs[e]) == 'object') {
+					qs_values = raw_qs[e]
+				}
+			} else {
+				qs_values = [raw_qs[e]];
+			}
+						
+ 			qs_values.forEach(function(qs_val, qs_i) {
+ 				switch(qs_specification[e].type) {
+ 					case 'integer':
+ 						qs_val = parseInt(qs_val, 10);
+						//do check for min, max etc here
+						if (Number.isNaN(qs_val)) {qs_val = qs_specification[e].min;} else {
+							if (qs_val &lt; qs_specification[e].min) {qs_val = qs_specification[e].min;}
+							if (qs_val > qs_specification[e].max) {qs_val = qs_specification[e].max;}
+						}
+						clean_input.good_query_strings[e] = qs_val;
+ 					break;
+ 					
+ 					case 'sql_control_i':
+ 						qs_val = parseInt(qs_val, 10);
+						//do check for min only here
+						if (Number.isNaN(qs_val)) {qs_val = qs_specification[e].min;} else {
+							if (qs_val &lt; qs_specification[e].min) {qs_val = qs_specification[e].min;}
+						}
+						clean_input.good_query_strings[e] = qs_val;
+ 					break;
+					
+ 					case 'string':
+						if (!shapeshifter.include(qs_specification[e].acceptable, qs_val)) {
+							// USING FALLBACK: check if `all`
+							if (qs_specification[e].fallback != 'all') {
+								qs_val = qs_specification[e].fallback;
+							} else {
+								delete clean_input.good_query_strings[e];
+								break;
+							}
+						}
+						if (null === clean_input.good_query_strings[e]) {
+							// if qs is meant to be multiple, important to ensure it goes into an array
+							if (qs_specification[e].multiple) {
+								clean_input.good_query_strings[e] = [qs_val];
+							} else {
+								clean_input.good_query_strings[e] = qs_val;
+							}
+						} else {
+							if (typeof(clean_input.good_query_strings[e]) == 'string') {
+								clean_input.good_query_strings[e] = [clean_input.good_query_strings[e], qs_val];
+							} else {
+								clean_input.good_query_strings[e].push(qs_val);
+							}
+						}
+ 					break;
+ 					
+ 					case 'sql_control_s':
+ 						// first test for placeholder indicating need to check against all fieldnames in current table
+ 						if (qs_specification[e].acceptable[0] !== 1) { // NOT placeholder, so continue as normal
+							
+							if (!_.includes(qs_specification[e].acceptable, qs_val)) {
+								// unacceptable: input does not match whitelist
+								qs_val = qs_specification[e].fallback;
+								if ( (typeof(clean_input.good_query_strings[e]) == 'undefined') || (clean_input.good_query_strings[e] == null) ) {
+									clean_input.good_query_strings[e] = qs_val;
+								} else {
+									clean_input.good_query_strings[e] = _.concat([qs_val], clean_input.good_query_strings[e]);
+								}
+							} else {
+								// acceptable input that matches whitelist
+								clean_input.good_query_strings[e] = qs_val;
+							}
+							
+						} else {
+							// IS placeholder, so this is special case where acceptable values is 
+							// any of the current fieldnames, which cannot be listed generically
+							var acceptable = returned_data[_.indexOf(tables, dataset_ref.table_name)];
+							
+							if (!_.includes(acceptable, qs_val)) {
+								qs_val = qs_specification[e].fallback;
+							}
+							if ( (typeof(clean_input.good_query_strings[e]) == 'undefined') || (clean_input.good_query_strings[e] == null) ) {
+								clean_input.good_query_strings[e] = qs_val;
+							} else {
+								clean_input.good_query_strings[e] = _.concat([qs_val], clean_input.good_query_strings[e]);
+							}
+						}						
+ 					break;
+ 					
+ 					case 'aggregation':
+						if (!_.includes(qs_specification[e].acceptable, qs_val)) {
+							clean_input.good_query_strings[e] = {'aggregation': qs_specification[e].fallback, 'target': qs_specification[e].target};
+						} else {
+							clean_input.good_query_strings[e] = {'aggregation': qs_val, 'target': qs_specification[e].target};
+						}
+						// console.log('sanitize_input/aggregation', clean_input.good_query_strings[e]);
+ 					break;
+ 					
+ 					case 'sort':
+						var qs_val_arr, sort_direction, postfix, sort_field, i, sort_specification = [], fallback_used = false;
+						
+						// if multiple sort orders are used, will be presented in an array, otherwise a string, so need to differentiate
+						// do this by wrapping string in array and looping through array
+						if (typeof(qs_val) == 'string') {
+							qs_val = [qs_val];
+						}
+						
+						for (i = 0; i &lt; qs_val.length; i++) {
+							qs_val_arr = qs_val[i].split('_'); //NB this means sort-order fieldnames can't include '_' character
+						
+							postfix = _.last(qs_val_arr);
+							if (qs_val_arr.length > 1) {
+								sort_field = _.take(qs_val_arr, qs_val_arr.length - 1).join('_');
+							} else {
+								sort_field = qs_val[i];
+							}
+							// console.log('>>>>>>>', qs_val_arr, postfix, sort_field);
+							// check sort direction is OK, if not use default of ascending = 'A'
+							if (shapeshifter.include(qs_specification[e].acceptable_postfix, postfix)) {
+								sort_direction = postfix;
+							} else {
+								sort_direction = 'A';
+							}
+							
+							
+							if (sort_field == qs_specification[e].fallback.sort_field) {
+								fallback_used = true;// &lt;- this will prevent next test from pushing twice on the fallback field as this has been actively chosen, it takes precedence
+								sort_specification.push({'sort_field': sort_field, 'sort_direction': sort_direction, fallback: false, 'priority': i});
+							} else {
+								if (shapeshifter.include(qs_specification[e].acceptable, sort_field)) {
+									sort_specification.push({'sort_field': sort_field, 'sort_direction': sort_direction, 'fallback': false, 'priority': i});
+								} else {
+									if (!fallback_used) {
+										sort_field = qs_specification[e].fallback.sort_field;
+										fallback_used = true;
+										sort_specification.push({'sort_field': sort_field, 'sort_direction': sort_direction, 'fallback': true, 'priority': i});
+									}
+								}
+							}
+						}
+						clean_input.good_query_strings[e] = sort_specification;
+ 					break;
+ 					
+ 					case 'strint':
+ 						// special case of a string consisting only of integers as chars - useful for things like codes with leading 0s
+ 						// this test is strictly pass or fail
+ 						
+ 						// Note the difference between Number.isNaN and just isNaN:
+ 						// isNaN converts the argument to a Number and returns true if the resulting value is NaN.
+						// Number.isNaN does not convert the argument; it returns true when the argument is a Number and is NaN.
+						// see: https://stackoverflow.com/questions/33164725/confusion-between-isnan-and-number-isnan-in-javascript#33164924
+						
+						// what about allowing hex numbers too?
+						
+						var valid_strint = true;
+						if (typeof(qs_val) == 'string') {
+							// first check chunksize as if fails, don't need to loop through string
+							if ((qs_val.length % Number.parseInt(qs_specification[e].chunksize)) != 0) {
+								valid_strint = false;
+							} else {
+								// now check within length constraints
+								if ((qs_val.length >= qs_specification[e].minchars) &amp;&amp; (qs_val.length &lt;= qs_specification[e].maxchars)) {
+									//now can loop through each char to test if each is a number
+									for (var i = 0; i &lt; qs_val.length; i++) {
+										if (!Number.isNaN(Number.parseInt(qs_val.charAt(i), 10))) {
+										} else {
+											valid_strint = false;
+											break;
+										}
+									}
+								} else {
+									valid_strint = false;
+								}
+							}
+						}
+						if (valid_strint) {
+							clean_input.good_query_strings[e] = qs_val;
+						} else {
+							qs_val = qs_specification[e].fallback;
+							clean_input.good_query_strings[e] = qs_specification[e].fallback;
+						}
+ 					break;
+ 					
+ 				}
+ 				
+			});
+		});
+				
+	} catch(err) {
+		console.log('\u001b[31msanitize_input error:\u001b[39m', err);
+		console.log(k, j, i, '>>', dimensions[k], raw_routes);
+	}
+	
+	return clean_input;
+}
+
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////// OUTPUT FORMATTING ///////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+/**
+ * output_404
+ * ===========
+ * 
+ * Handles errors where things are missing and gives a bit more detail in the 404 message
+ * 
+ * @param {object} body
+ * @return {string}
+ * 
+*/
+
+function output_404(body, error) {
+	try {
+		if (typeof(body.jse_cause) != 'undefined') {
+			if (!deploy_mode) console.log('\u001b[31moutput_404\u001b[39m', body.jse_cause);
+			if (body.jse_cause.code === 'ENOENT') {
+				return '{"error": "404: that file doesn\'t exist."}\n';
+			} else {
+				return '{"error": "404: unknown error' + (deploy_mode ? '' : body + '\n' + error) + '"}\n';
+			}
+		} else {
+				return '{"error": "404: unknown error' + (deploy_mode ? '' : ' (no jse_cause)... ' + body + '\n' + error) + '"}\n';
+			}
+	} catch (error) {
+		console.log('\u001b[31moutput_404 error \u001b[39m', error);
+	}
+}
+
+
+
+
+
+
+/**
+ * finalise_response
+ * =================
+ * 
+ * Wraps up a sendRaw return, necessary instead of a simple send, including error catching
+ * 
+ * @param {string} mime
+ * @param {object} res
+ * @param {object} body
+ * 
+*/
+
+function finalise_response(mime, res, body) {
+	try {
+		if (typeof(body) == 'undefined') body = 'Error: No data to return\n';
+		res.sendRaw(200, body, {
+			'Content-Length': Buffer.byteLength(body),
+			'Content-Type': mime
+		});
+		
+	} catch (error) {
+		console.log('\u001b[31mERROR in finalise_response:\u001b[39m', error);
+	}
+}
+
+
+
+
+
+/**
+ * format_yaml
+ * ===========
+ * 
+ * @param {number} num
+ * @return {number}
+ * 
+*/
+
+function format_yaml(req, res, body) {
+	if (body instanceof Error)
+		return output_404(body, '');
+	finalise_response('application/yaml', res, yaml.safeDump(body) );
+}
+
+
+
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////// SERVER SETUP /////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+var server = restify.createServer({
+	name: org_name + ' Data Explorer',
+	version: version,
+	
+	// NB in formatters below, method signature is typically format_HTML(req, res, body, cb)
+	// where cb = callback function. This gets caught by ESLint as it isn't used, so it is removed below
+	formatters: {
+		'text/html': function format_HTML(req, res, body) {
+			if (body instanceof Error)
+				return output_404(body, '');
+			finalise_response('text/html', res, body);
+		},
+		
+		'text/csv': function format_csv(req, res, body) {
+			if (body instanceof Error)
+				return output_404(body, '');
+			finalise_response('text/csv', res, body);
+		},
+		
+		'application/json': function format_json(req, res, body) {
+			if (body instanceof Error)
+				return output_404(body, '');
+			finalise_response('application/json', res, body);
+		},
+		
+		'application/xml': function format_xml(req, res, body) {
+			if (body instanceof Error)
+				return output_404(body, '');
+			finalise_response('application/xml', res, js2xmlparser.parse("energy", JSON.parse(body)) );
+		},
+		
+		'text/yaml': format_yaml,
+		'text/x-yaml': format_yaml,
+		'application/yaml': format_yaml,
+		'application/x-yaml': format_yaml
+	}
+});
+
+
+
+
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////  SERVER ROUTES  /////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////
+
+
+// dedupe slashes in URL before routing
+server.pre(restify.plugins.pre.dedupeSlashes());
+
+
+// CORS //
+
+const cors = corsMiddleware({
+	preflightMaxAge: 5, //Optional
+	origins: ['*'],
+	allowHeaders: ['API-Token'],
+	exposeHeaders: ['API-Token-Expiry']
+})
+
+server.pre(cors.preflight)
+server.use(cors.actual)
+
+
+
+
+// Throttle //
+
+server.use(restify.plugins.throttle({
+	burst: 50,  // Max 50 concurrent requests (if tokens)
+	rate: 10,   // Steady state: e.g. 0.5 = 1 request / 2 seconds
+	ip: true,   // throttle per IP
+	overrides: {
+		'127.0.0.1:8080': {
+		burst: 0,
+		rate: 0    // unlimited
+		}
+	}
+}));
+
+
+
+
+
+
+
+
+var output_HATEOAS = function(req, state) {
+	var page_names, doc_start1, doc_start2, body_start, ga_script, page_data, page_title, i, link_names;
+	try {
+		page_names = qs_specification_all.html;
+		doc_start1 = qs_specification_all.static_html.page_header_1;
+		doc_start2 = qs_specification_all.static_html.page_header_2;
+		body_start = qs_specification_all.static_html.body_start;
+		body_start += qs_specification_all.static_html.body_start2 + qs_specification_all.static_html.logo_url + qs_specification_all.static_html.body_start3;
+
+		ga_script = qs_specification_all.static_html.ga_script;
+	} catch(error) {
+		console.log('\u001b[31mERROR (qs_specification_all.static_html):\u001b[39m', error);
+		page_names = {};
+		doc_start1 = "&lt;!DOCTYPE html>&lt;html>&lt;head>&lt;title>";
+		doc_start2 = "&lt;/title>&lt;/head>";
+		body_start = "&lt;body>";
+
+		ga_script = '';
+	}
+	
+	var domain_names, actual_accept_type;
+	var datasets_listing = '';
+	var output = '', URL_loc = '.';
+	if (typeof(req.headers.accept) != 'undefined'){
+		actual_accept_type = parse_accept_header(req.headers.accept);
+	} else {
+		actual_accept_type = 'text/plain';//if no accept header has been set, use text/plain as probably a robot
+	}
+	// console.log(actual_accept_type);
+	
+	switch(actual_accept_type) {
+		case 'text/html':
+			var show_domain = false, show_page_name = true, show_table_name = false;
+			if (state.location == '') {
+				domain_names = Object.keys(page_names);
+			} else {
+				URL_loc = '';
+				if ( _.includes(Object.keys(page_names), state.location) ) {// check for valid location name
+					domain_names = [state.location];
+				} else { // if not valid, just show all
+					state.location = '';
+					domain_names = Object.keys(page_names);
+				}
+			}
+			domain_names.forEach(function(domain_name) {
+				link_names = '';
+				// console.log(domain_name, Object.keys(page_names[domain_name]));
+				Object.keys(page_names[domain_name]).forEach(function(page_name) {
+					page_data = page_names[domain_name][page_name].page_data;
+					page_title = page_names[domain_name][page_name].title;
+					// if (show_page_name) link_names += '&lt;div>&lt;strong>' + page_name.toUpperCase() + '&lt;/strong>&lt;/div>&lt;ul>';
+					// if (show_page_name) link_names += '&lt;div>&lt;strong>' + page_title + ' (' + page_name.toUpperCase() + ')' + '&lt;/strong>&lt;/div>&lt;ul>';
+					if (show_page_name) link_names += '&lt;div>&lt;strong>' + page_title + (show_table_name? ' (' + page_name.toUpperCase() + ')' : '') + '&lt;/strong>&lt;/div>&lt;ul>';
+					for (i = 0; i &lt; page_data.length; i++) {
+						if (page_data[i].public_link) link_names += '&lt;li>&lt;a href="' + URL_loc + '/' + domain_name  + page_data[i].uri + ((page_data[i].page == 'index') ? '' : page_data[i].page + '.html') + '">' + page_data[i].name + '&lt;/a>' + '&lt;p>' + page_data[i].blurb +  '&lt;/p>' + '&lt;/li>';
+					}
+					link_names += '&lt;/ul>';
+				});
+				if (show_domain) datasets_listing += '&lt;div>' + domain_name + '&lt;/div>';
+				datasets_listing += '&lt;div>' + link_names + '&lt;/div>';
+
+			});
+			
+			output = doc_start1 + org_name + ' ' + state.location + ' data tools' + doc_start2 + body_start;
+			output += '&lt;h1>' + org_name + ' ' + state.location + ' data tools&lt;/h1>' + qs_specification_all.static_html.body_1;//&lt;p>Use this tool to download and explore ' + org_name + ' data.&lt;/p>'
+			output += datasets_listing  + qs_specification_all.static_html.body_2 + '&lt;/div>&lt;/div>&lt;/div>&lt;/div>';
+			if (deploy_mode) output += ga_script;
+			output += '&lt;/body>&lt;/html>';
+		break;
+		
+		case 'application/hal+json':
+		case 'application/json':
+			// see	http://stateless.co/hal_specification.html
+			//		https://tools.ietf.org/html/draft-kelly-json-hal-08
+			//		https://github.com/willdurand/Hateoas
+			// console.log('application/json, version', version);
+			
+			output = JSON.stringify({
+				"message": "BEIS data tools. The following data tools are now online. All of these data tools are entirely underpinned by previously published BEIS data.",
+				"version": version,
+				"contact": "energy.stats@beis.gov.uk",
+				"_links": {
+					"self": { "href": "/" },
+					"curies": [{ "name": "beis", "href": req.headers.host + "/{rel}", "templated": true }]
+				},
+				"_embedded": {
+					"beis:energy": [{
+						"_links": {
+							"self": { "href": "/energy/data/" }
+						}
+					}],
+					"beis:business": [{
+						"_links": {
+							"self": { "href": "/business/data/" }
+						}
+					}]
+				}
+			});
+			
+		break;
+		
+		case 'text/csv':
+			
+		// break;
+		
+		case 'application/xml':
+			
+		// break;
+		
+		case 'text/yaml':
+		case 'text/x-yaml':
+		case 'application/yaml':
+		case 'application/x-yaml':
+			
+		// break;
+		
+		case 'application/octet-stream':
+		default:
+			if (!deploy_mode) console.log(req.headers.host);
+			if (state.location == '') {
+				domain_names = Object.keys(page_names);
+			} else {
+				URL_loc = '';
+				if ( _.includes(Object.keys(page_names), state.location) ) {// check for valid location name
+					domain_names = [state.location];
+				} else { // if not valid, just show all
+					state.location = '';
+					domain_names = Object.keys(page_names);
+				}
+			}
+			if (!deploy_mode) console.log(domain_names);
+			link_names = [];
+			domain_names.forEach(function(domain_name) {
+				Object.keys(page_names[domain_name]).forEach(function(page_name) {
+					if (!deploy_mode) console.log('     >>> ' + page_name);
+					page_data = page_names[domain_name][page_name].page_data;
+	
+					for (i = 0; i &lt; page_data.length; i++) {
+						if (page_data[i].public_link) link_names.push(page_data[i].name + ': ' + req.headers.host + '/' + domain_name  + page_data[i].uri + ((page_data[i].page == 'index') ? '' : page_data[i].page + '.html') );
+					}
+				});		
+			output = link_names.join("\n");
+			});
+		break;
+	}
+	return output;
+}
+
+
+var blackhole = function(req) {
+	try{
+		if (!deploy_mode) console.log('\u001b[31mMALICIOUS REQUEST\u001b[39m', req.url, req.headers.referer, req.headers['x-requested-with'], req.headers['user-agent'], req.headers.host);
+		if (deploy_mode) logger.log('warn', 'malicious', { URL: req.url, referer: req.headers.referer, requested_with: req.headers['x-requested-with'], UA: req.headers['user-agent'], host: req.headers.host});
+	} catch(err) {
+		console.log('\u001b[31mMALICIOUS REQUEST error:\u001b[39m', err);
+	}
+}
+
+
+
+server.get(/^\/w00tw00t.*/, function(req, res, next) {
+	blackhole(req);
+	return next();
+});
+
+
+server.get(/^\/webdav.*/, function(req, res, next) {
+	blackhole(req);
+	return next();
+});
+
+
+server.get(/^\/cgi.*/, function(req, res, next) {
+	blackhole(req);
+	return next();
+});
+
+
+server.get(/^\/admin.*/, function(req, res, next) {
+	blackhole(req);
+	return next();
+});
+
+
+server.get(/^\/php.*/, function(req, res, next) {
+	blackhole(req);
+	return next();
+});
+
+
+server.get(/\.php$/, function(req, res, next) {
+	blackhole(req);
+	return next();
+});
+
+
+server.get(/\.cgi$/, function(req, res, next) {
+	blackhole(req);
+	return next();
+});
+
+
+server.get(/\.htm$/, function(req, res, next) {
+	blackhole(req);
+	return next();
+});
+
+
+server.get(/passwd$/, function(req, res, next) {
+	blackhole(req);
+	return next();
+});
+
+
+server.get(/script$/, function(req, res, next) {
+	blackhole(req);
+	return next();
+});
+
+
+server.get(/^\/HNAP1.*/, function(req, res, next) {
+	blackhole(req);
+	return next();
+});
+
+
+server.get(/^\/moo.*/, function(req, res, next) {
+	blackhole(req);
+	return next();
+});
+
+
+server.get(/^\/manager.*/, function(req, res, next) {
+	blackhole(req);
+	return next();
+});
+
+
+server.get(/^\/flex2gateway.*/, function(req, res, next) {
+	blackhole(req);
+	return next();
+});
+
+
+server.get(/^\/verifylogin.*/, function(req, res, next) {
+	blackhole(req);
+	return next();
+});
+
+
+server.get(/^\/ccvv.*/, function(req, res, next) {
+	blackhole(req);
+	return next();
+});
+
+
+server.get(/^\/stssys.*/, function(req, res, next) {
+	blackhole(req);
+	return next();
+});
+
+
+server.get(/^\/nice.*/, function(req, res, next) {
+	blackhole(req);
+	return next();
+});
+
+
+server.get(/^\/wp-.*/, function(req, res, next) {
+	blackhole(req);
+	return next();
+});
+
+
+server.get("/.well-known/security.txt", function(req, res, next) {
+	blackhole(req);
+	return next();
+});
+
+/*
+
+
+"UA":"masscan"
+
+{"URL":"/.well-known/security.txt","level":"error","message":"404","timestamp":"2018-03-07T03:54:39.290Z"}
+{"URL":"/ycqdocqhxko.html","UA":"Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)","level":"error","message":"404","timestamp":"2018-03-09T02:48:05.566Z"}
+{"URL":"/sitemap.xml","level":"error","message":"404","timestamp":"2018-03-09T15:20:06.638Z"}
+*/
+
+
+
+server.get(/^\/([a-zA-Z0-9_\.~-]+)\/?$/, function(req, res, next) {
+	try{
+		if (!deploy_mode) console.log('\u001b[36mnon-landing page:::\u001b[39m', req.params[0], req.params[1], req.params[2]);
+		if (deploy_mode) logger.log('info', 'nonlanding', { URL: req.url, referer: req.headers.referer, requested_with: req.headers['x-requested-with'], UA: req.headers['user-agent'], host: req.headers.host});
+		res.sendRaw(output_HATEOAS(req, {location: req.params[0]}));
+	} catch(err) {
+		console.log('\u001b[31mnon-landing page error:\u001b[39m', err);
+	}
+	return next();
+});
+
+
+
+server.get(/^\/([a-zA-Z0-9_\.~-]+)\/data\/?$/, function(req, res, next) {
+	try{
+		if (!deploy_mode) console.log('\u001b[35mlanding page:::\u001b[39m', req.params[0], req.params[1], req.params[2]);
+		if (deploy_mode) logger.log('info', 'landing', { URL: req.url, referer: req.headers.referer, requested_with: req.headers['x-requested-with'], UA: req.headers['user-agent'], host: req.headers.host});
+		res.sendRaw(output_HATEOAS(req, {location: req.params[0]}));
+	} catch(err) {
+		console.log('\u001b[31mlanding page error:\u001b[39m', err);
+	}
+	return next();
+});
+
+server.get(/\/data\/?.*/, restify.plugins.serveStatic({
+	directory: './UI',
+	default: 'index.html'
+}));
+
+
+// server.get(/\/energy\/data\/?.*/, restify.plugins.serveStatic({
+// 	directory: './UI',
+// 	default: 'index.html'
+// }));
+
+
+server.get(/^\/energy\/manual\/?.*/, restify.plugins.serveStatic({
+	directory: './UI',
+	default: 'index.html'
+}));
+
+
+server.get(/^\/business\/manual\/?.*/, restify.plugins.serveStatic({
+	directory: './UI',
+	default: 'index.html'
+}));
+
+
+// DOCUMENTATION
+// This autogenerated by JSDoc, which is configured to output to:
+// http://localhost:8080/documentation/api/1.0.0/index.html
+// so need to set up path to it
+server.get(/^\/documentation\/api\/1.0.0\/?.*/, restify.plugins.serveStatic({
+	directory: './UI',
+	default: 'index.html'
+}));
+
+
+// Only enable this during development - not deployment!
+// server.get(/^\/test\/?.*/, restify.plugins.serveStatic({
+// 	directory: './UI',
+// 	default: 'tests.html'
+// }));
+
+
+server.get(/^\/robots\.txt/, function(req, res, next) {
+	if (deploy_mode) logger.log('info', 'robot', { URL: req.url, referer: req.headers.referer, requested_with: req.headers['x-requested-with'], UA: req.headers['user-agent'], host: req.headers.host});
+	finalise_response('text/plain', res, "User-agent: *\nDisallow: /fuel/\nDisallow: /business/\nDisallow: /climate/\nDisallow: /energy/DUKES/");
+	return next();
+});
+
+server.get(/\/robots\.txt$/, function(req, res, next) {
+	if (deploy_mode) logger.log('info', 'robot', { URL: req.url, referer: req.headers.referer, requested_with: req.headers['x-requested-with'], UA: req.headers['user-agent'], host: req.headers.host});
+	finalise_response('text/plain', res, "User-agent: *\nDisallow: /fuel/\nDisallow: /business/\nDisallow: /climate/\nDisallow: /energy/DUKES/");
+	return next();
+});
+
+
+server.get(/^\/favicon\.ico/, restify.plugins.serveStatic({
+	directory: './UI/data/images/',
+	default: 'favicon.ico'
+}));
+
+
+
+
+
+
+
+var get_data = function(sql) {
+	return db.any(sql)
+		.then(data => {
+			return data;
+		})
+	.catch(error => {
+		// return error;// this is useful for debugging
+		console.log('\u001b[31mERROR (get_data):\u001b[39m', error);
+		return '';
+	})
+    .finally(() => {
+		// do any cleanup here
+		
+	});
+}
+
+
+
+
+
+
+// small helper function...
+var get_trees = function(table_name, datasets) {
+	var k2 = table_name.split('_');
+	if (typeof(datasets[k2[0]][k2[1]]['tree']) != 'undefined') {
+		return datasets[k2[0]][k2[1]]['tree'];
+	} else {
+		return {};
+	}
+}
+
+
+
+var construct_sql = function(query_parameters) {
+	var trees = get_trees(query_parameters.table_name, datasets);
+	return querify.make_sql(query_parameters, qs_specification_all, trees);
+}
+
+
+
+
+var unparse_data = function(data_array) {
+	var fieldnames = Object.keys(data_array[0]), fielddata, output = '';
+	output += fieldnames.join(',');
+	
+	data_array.forEach(function(data_item) {
+		fieldnames = Object.keys(data_item);
+		fielddata = [];
+		fieldnames.forEach(function(field_item) {
+			fielddata.push(data_item[field_item]);
+		});
+		output += fielddata.join(',');
+		output +='\r';
+	});
+	
+	return output;
+}
+
+
+
+var configure_data_for_output = function(query_pars, non_sql, included, sql_response) {
+			
+			// If required, this puts the returned data into a dataframe and pivots it to a wide format
+			
+			if (non_sql.orientation.requested == "wide") {
+				console.log("orientation.requested == wide", qs_specification_all.sql[query_pars.table_name].display);
+				
+				var pivot_variable_req;
+				
+				if (_.includes(included, non_sql.pivot_variable.requested)) {
+					console.log("INCLUDED");
+					console.log("included", included);
+					console.log("non_sql.pivot_variable.requested", non_sql.pivot_variable.requested);
+					pivot_variable_req = non_sql.pivot_variable.requested
+				} else {
+					console.log("NOT INCLUDED");
+					console.log("included", included);
+					console.log("non_sql.pivot_variable.requested", non_sql.pivot_variable.requested);
+					var alternative_fieldnames = qs_specification_all.sql[query_pars.table_name].display;
+					var alternative_fieldname_keys = _.keys(alternative_fieldnames);
+					console.log("alternative_fieldname_keys", alternative_fieldname_keys);
+					if (_.includes(alternative_fieldname_keys, non_sql.pivot_variable.requested)) {
+						pivot_variable_req = alternative_fieldnames[non_sql.pivot_variable.requested].label;
+						console.log("new_fieldname/pivot_variable_req", pivot_variable_req);
+					}
+				}
+				
+				if (sql_response.length > 0) {
+					var sql_df_narrow = jd.dfFromObjArray(sql_response);
+					var idVars = _.clone(included);
+					var remove_all_null_columns = true;
+					var null_columns = [];
+					idVars = _.pull(idVars, pivot_variable_req, non_sql.pivot_value.requested);
+	
+					// This removes all columns that only contain empty values
+					if(remove_all_null_columns) {
+						var n_df = sql_df_narrow.isNa();
+						var x_df = n_df.mapCols(n_df._names.values, function(col){
+							var a_or_b = _.reduce(col.values, function(a, b) {
+								return a || b;
+							}, false);
+							return a_or_b;
+							});
+								
+						_.forEach(x_df._cols, function(col, i) {
+							if (col.values[0]) {null_columns.push(x_df._names.values[i]);}
+						});
+
+						null_columns = _.pull(null_columns, non_sql.pivot_variable.requested, non_sql.pivot_value.requested);// first remove obvious non-pivot columns
+						_.pullAll(idVars, null_columns);// remove columns that contain null values, as these will break when pivoting
+					} else {
+						null_columns = _.pull(null_columns, non_sql.pivot_variable.requested, non_sql.pivot_value.requested);// first remove obvious non-pivot columns
+						_.pullAll(idVars, null_columns);// remove columns that contain null values, as these will break when pivoting
+					}
+				
+					// ESlint objects to the way aggFunc is defined here: Require Object Literal Shorthand Syntax (object-shorthand)
+					// It's a stylistic thing for EcmaScript 6, but the ESlint approved ways seem to fail, so ignore this.
+					var df_opts = {
+						fillValue: 0,
+						idVars: idVars,
+						aggFunc: function(x) {
+							return x.values[0];
+						}
+					}
+				
+					// NOTE: pivot won't work if there is a null value in the column you want to pivot on
+					// var sql_df_wide = sql_df_narrow.pivot(non_sql.pivot_variable.requested, non_sql.pivot_value.requested, df_opts);
+					console.log('idVars etc...', idVars, non_sql.pivot_variable.requested, non_sql.pivot_value.requested, df_opts);
+					var sql_df_wide = sql_df_narrow.pivot(pivot_variable_req, non_sql.pivot_value.requested, df_opts);
+					var sql_df_wide_objarr = sql_df_wide.toObjArray();
+					sql_response = sql_df_wide_objarr;
+					}
+			}
+			
+			var actual_accept_type;
+			
+			if (non_sql.format.requested == "csv") {
+				actual_accept_type = "text/csv";
+			} else {
+				actual_accept_type = "application/json";
+			}
+
+			switch(actual_accept_type) {
+				case "text/csv":
+				case "text/plain":
+					sql_response = Papa.unparse(sql_response, {
+								quotes: false,
+								quoteChar: '"',
+								delimiter: ",",
+								header: true,
+								newline: '\n'
+								});
+				break;
+				
+				case "text/yaml":
+				case "text/x-yaml":
+				case "application/yaml":
+				case "application/x-yaml":
+					var output_arr = [];
+					sql_response.forEach(function(e) {
+						output_arr.push(yaml.safeDump(e));
+					});
+					sql_response = output_arr.join('\n');
+				break;
+				
+				case "text/html":
+					var output = "&lt;!DOCTYPE html>&lt;html>&lt;head>&lt;title>Data&lt;/title>&lt;/head>&lt;body>";
+					output += "&lt;table border=1>";
+					output += sql_response.join('\n');
+					output += "&lt;/table>&lt;/body>&lt;/html>";
+					sql_response = output;
+				break;
+				
+				default:
+					// both JSON and XML: Don't do anything as JSON.stringify is called later...
+				break;
+			}
+	
+	return sql_response;
+}
+
+
+var parse_accept_header = function(accept_header) {
+	// Example header:
+	// "application/json, text/javascript, */*; q=0.01"
+		if (typeof(accept_header) != 'undefined'){
+		var handled_headers = ['text/html','text/csv','application/json','application/xml','text/yaml','text/x-yaml','application/yaml','application/x-yaml', '*/*'];
+		var default_header = handled_headers[0];
+		var accept_header_arr = accept_header.replace(/\s/g, '').split(';');
+		var accept_header_types_arr = accept_header_arr[0].split(','); // This is the array of mime-types being requested
+	
+		_.forEach(accept_header_types_arr, function(value) {
+			if (_.includes(handled_headers, value)) {
+				default_header = value;
+				return false;
+			}
+		});
+	
+		if (default_header == '*/*') default_header = 'application/octet-stream';
+		return default_header;
+	} else {
+		return 'application/octet-stream';
+	}
+}
+
+
+
+
+var dispatch_route = function(req, res, next) {
+	var param0 = req.params[0].toLowerCase();
+	var param1 = req.params[1].toLowerCase();
+	var mime_type;
+	if (typeof(req.headers.accept) != 'undefined'){
+		mime_type = parse_accept_header(req.headers.accept);
+	} else {
+		mime_type = 'application/json';//if no accept header has been set, use JSON
+	}
+	
+	if (shapeshifter.include(Object.keys(datasets), param0)) {
+		// dataset OK
+		if (shapeshifter.include(Object.keys(datasets[param0]), param1)) {
+			// table OK
+			
+			/*
+			1. get all routing parameters and check them against the dimensions provided
+			2. divide up into set of acceptable routes (allocated to each dimension) and bad routes
+			3. identify acceptable values for query string parameters
+			4. get all query strings and allocate them to good/bad and then work out which are missing
+			*/
+			
+			// gather routing and query string parameters
+			var query_parameters = sanitize_input(	req.params[2].split('/'), 
+												url_o.parse(req.url, true).query, 
+												datasets[param0][param1]);
+						
+			// NB - if a malformed SQL statement gets returned, then this will throw an "ERROR: TypeError: Invalid query format."
+			// should protect for this by putting a try-catch statement in construct_sql and also get_data
+			var query;
+			try {
+				query = construct_sql(query_parameters);
+			} catch(error) {
+				console.log('\u001b[31mERROR (call to construct_sql):\u001b[39m', error);
+			}
+			if (typeof(query) == 'undefined') {query = {sql: "SELECT 1 AS one;", non_sql: {orientation: {requested: "narrow"}, included: [] } } }
+			
+			var main_output;
+			get_data(query.sql).then(data => {
+				if (query_parameters.good_query_strings.format == 'csv') {
+					main_output = configure_data_for_output(query_parameters, query.non_sql, query.included, data);
+				} else {
+					main_output = JSON.stringify( configure_data_for_output(query_parameters, query.non_sql, query.included, data) );
+				}
+			})
+			.catch(error => {
+				console.log('\u001b[31mERROR (get_data):\u001b[39m', error);
+				main_output = "Something went wrong with querying the database, so there's no data to give you. ";
+			})
+			.finally(() => {
+				finalise_response(mime_type, res, main_output);
+			});
+						
+		} else {
+			// check if there is a request for metadata for UI
+			// curl "http://localhost:8080/energy/dukes_fuel/flat?format=json"
+			// curl "http://localhost:8080/energy/dukes_fuel/tree?format=json"
+			var metadata = param1.split('_');
+			if (shapeshifter.include(Object.keys(datasets[param0]), metadata[0]) ) {
+				var dims = datasets[param0][metadata[0]].dimensions;
+				if (shapeshifter.include(dims, metadata[1]) ) {
+					var output_data, data_type = req.params[2];
+					
+					try {
+						// tree = object with each element an object referenced by the key, which is also the id property of the element
+						// flat = array with each element an object. You need to check the id property of this object to get a reference
+						// apart from these differences, the element objects themselves are identical
+						if (data_type == 'tree') {
+							output_data = datasets[param0][metadata[0]].tree[metadata[1]];
+                            console.log('\u001b[33mTREEEEEEEEEEEE\u001b[39m', metadata, datasets[param0][metadata[0]]);
+						} else if (data_type == 'flat') {
+							output_data = datasets[param0][metadata[0]][metadata[1]];
+						} else {output_data = []}
+					} catch (e) {
+						console.log('\u001b[31merror in providing metadata\u001b[39m', e, metadata, dims);
+					}
+				}
+				
+				finalise_response(mime_type, res, JSON.stringify(output_data));
+			} else {
+				finalise_response(mime_type, res, 'T, nothing here!');
+			}
+		}
+	} else {
+		finalise_response(mime_type, res, 'D, nothing here!');
+	}
+}
+
+
+
+
+
+
+// Finally deal with base case with '/' (where user has forgotten any routing parameters)
+// As there is nothing useful specified, this could default by sending all data, but
+// this would be a poor choice: better to send a 404 error.
+// 'All data' should be explicitly represented by a user request for all fuel types across all flows.
+
+
+
+
+
+server.get('/', function(req, res, next) {	
+	try{
+		var state = {location: ''}
+		if (deploy_mode) logger.log('info', 'home', { URL: req.url, referer: req.headers.referer, requested_with: req.headers['x-requested-with'], UA: req.headers['user-agent'], host: req.headers.host});
+		res.sendRaw(output_HATEOAS(req, state));
+		// console.log(request.connection.remoteAddress);//server.Server._events.connection
+		// console.log(req.connection);//parser.HTTPParser.incoming
+		// console.log(req.headers.host);
+		// console.log(req.connection.parser.incoming);
+		// console.log(req.statusCode, req.statusMessage);
+	} catch(err) {
+		console.log('\u001b[31mroot page ("/") error:\u001b[39m', err);
+	}
+	return next();
+});
+
+
+
+
+
+// main data handler for API calls
+
+server.get(/^\/([a-zA-Z0-9_\.~-]+)\/([a-zA-Z0-9_\.~-]+)\/(.*)/, function(req, res, next) {
+	try{
+		if (!deploy_mode) console.log('\u001b[36mroutes: \u001b[39m', req.params[0], req.params[1], req.params[2]);
+		if (deploy_mode) logger.log('info', 'API_call', { URL: req.url, referer: req.headers.referer, requested_with: req.headers['x-requested-with'], UA: req.headers['user-agent'], host: req.headers.host});
+		dispatch_route(req, res, next);
+		/*
+		console.log(req.headers.referer);
+		console.log(req.headers.x-requested-with);
+		console.log(req.headers.user-agent);
+		console.log(req.url);
+	
+		HTTPSTATUSCODE
+		URLPATH
+		REMOTEIPORHOST
+		REQUESTTIMESECONDS
+		UNIQUE_ID
+		*/
+	} catch(err) {
+		console.log('\u001b[31mmain routing error:\u001b[39m', err);
+	}
+	return next();
+});
+
+
+
+
+
+/////////////////////////////////////// FALLBACK /////////////////////////////////////////
+
+// This route deals with random parameters that are not dealt with in the normal run of events
+// It produces a 404 error page
+
+server.get(/^\/(.*)/, function(req, res, next) {
+	try{
+		var route_params = req.params[0].split('/');
+		if (!deploy_mode) console.log('server.get 404', req.params[0]);
+		if (deploy_mode) logger.log('error', '404', { URL: req.url, referer: req.headers.referer, requested_with: req.headers['x-requested-with'], UA: req.headers['user-agent'], host: req.headers.host});
+		return finalise_response('text/plain', res, output_404(req.params[0], 'server.get'));
+	} catch(err) {
+		console.log('\u001b[31mfallback/404 page ( ^/(.*)/ ) error:\u001b[39m', err);
+		return next();//probably need this here
+	}
+});
+
+
+
+server.use(function(req, res, next) {
+	if (!deploy_mode) ('server.use 404', req.params[0]);
+	return next(new NotFoundError('not here!'));
+});
+
+
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////// SERVER STARTUP ////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////
+
+/*
+
+database naming convention:
+
+"name_subname" is a regular table
+"_name_subname" is a disclosure controlled table that must not release microdata
+"__name_subname" is a protected table that should not be used by the API
+
+*/
+
+
+/**
+ * get_datasets
+ * ===========+
+ * 
+ * Gets a list of approved tables for loading up
+ * 
+ * @param {object} tables_arr
+ * @return {object}
+ * 
+*/
+
+
+
+var get_datasets = function(tables_arr) {
+	var tables = [], dataset_info = {}, table_name, table_types, protect;
+	 for (var i = 0; i &lt; tables_arr.length; i++) {
+	 	table_name = tables_arr[i].table_name;
+	 	if (table_name.charAt(1) != '_') {
+	 		// load data for public tables and protected table
+	 		tables.push(table_name);
+			table_types = table_name.split('_');
+			if (table_types[0] == '') {
+				// now flag protected tables to prevent direct access to microdata.
+				// the point of protected tables is to allow access to aggregate data, but disclosure control will need to be applied
+				table_types.shift();
+				protect = true;
+			} else {
+				protect = false;
+			}
+			
+			if (typeof(dataset_info[table_types[0]]) == 'undefined') dataset_info[table_types[0]] = {};
+			
+			// this is for regular tables
+			if (table_types.length == 2) {
+				dataset_info[table_types[0]][table_types[1]] = {table_name: table_name, protect: protect};
+				// console.log('loaded table:', table_name);
+				console.log('\u001b[32mloaded table:\u001b[39m', table_name);
+			}
+			
+			// this is for dimension data belonging to a regular table indicated in the first 2 items in table_types
+			if (table_types.length == 3) {
+				if (typeof(dataset_info[table_types[0]][table_types[1]]) == 'undefined') 
+				dataset_info[table_types[0]][table_types[1]] = {table_name: (table_types[0] + '_' + table_types[1]), dimensions: [], protect: protect};
+				
+				if (typeof(dataset_info[table_types[0]][table_types[1]].dimensions) == 'undefined') dataset_info[table_types[0]][table_types[1]].dimensions = [];
+				dataset_info[table_types[0]][table_types[1]].dimensions.push(table_types[2]);
+				// console.log('\u001b[34mloaded table:\u001b[39m', table_name);
+				console.log('\u001b[32mloaded table: \u001b[33m' + table_name + '\u001b[39m');
+
+			}
+						
+		} else {
+			if ((table_name.length > 1) &amp;&amp; (table_name.charAt(1) == '_')) {
+				// console.log('\u001b[33mprivate table:\u001b[39m', table_name);
+			}
+		}
+	}
+	return [tables, dataset_info];
+}
+
+
+
+
+
+
+
+/*
+ * clean_fields
+ *
+ * takes the list of objects consisting of just one element produced by e.g. postgres column listing
+ * and collapses to a simple array
+ *
+ * @param {array} column_names_arr - array like: [{column_name: 'col1'}, {column_name: 'col2'}]
+ *
+ * @return {array} fieldnames
+ * 
+*/
+
+var clean_fields = function(column_names_arr) {
+	var fieldnames = [];
+	column_names_arr.forEach(function(e) {
+		fieldnames.push(e.column_name);
+	});
+	return fieldnames;
+}
+
+
+
+
+var construct_tree_usage_SQL = function(tree_field, tree_name, main_field, main_name) {
+	var sql = 'SELECT tree.' + tree_field + ' FROM ';
+	sql += '(SELECT DISTINCT ' + main_field + ' FROM ' + main_name + ' ORDER BY ' + main_field + ') main ';
+	sql += 'RIGHT OUTER JOIN ';
+	sql += '(SELECT ' + tree_field + ' FROM ' + tree_name + ') tree ';
+	sql += 'ON main.' + main_field + ' = tree.' + tree_field + ' ';
+	sql += 'WHERE main.' + main_field + ' IS NULL ';
+	sql += 'ORDER BY tree.' + tree_field + ';';
+	return sql;
+}
+
+
+
+
+
+/*
+ * init
+ *
+ * initialisation at startup. reads in and processes list of database tables in order to 
+ * set up all input sanitisation and output formatting rules for query strings and routes
+ *
+ * 
+*/
+
+function init() {
+
+	var table_sql = "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_schema,table_name;";
+	
+	db.tx('init-transaction', t => {
+		return t.any(table_sql)
+			.then(data=> {
+// console.log('=================>', data);
+				var i, b = [], td = get_datasets(data), table_sections = [], dimensions = [];
+				tables = td[0];
+				datasets = td[1];
+				
+				for (i = 0; i &lt; (tables.length); i++) {
+					table_sections = tables[i].split('_');
+					if ((table_sections.length == 3) &amp;&amp; (table_sections[0] != '')) {
+						dimensions.push(tables[i]);
+					}
+                    b.push(t.any("SELECT column_name FROM information_schema.columns WHERE table_name = '" + tables[i] + "';"));
+				}
+				for (i = 0; i &lt; (dimensions.length); i++) {
+					b.push(t.any("SELECT * FROM " + dimensions[i] + " ORDER BY ref_order;"));
+					// Can't do simple tweak to suppress dimension items with status = 0 as the following line doesn't work :(
+					// so will have to adjust UI instead
+					// b.push(t.any("SELECT * FROM " + dimensions[i] + " WHERE status > 0 ORDER BY ref_order;")); 
+				}
+				
+				return t.batch(b);
+			});
+	})
+	.then(data => {
+        // console.log('%%%%%%%%%%%%%%%%%%%%%%%%% ', JSON.stringify(data));
+		var i, table_name, table_sections;
+		
+		// this goes through the first batch of returned values, containing fieldnames for each table
+		for (i = 0 ; i &lt; tables.length; i++)  {
+			returned_data.push(clean_fields(data[i]));
+		}
+		
+		for (i = tables.length ; i &lt; data.length; i++)  {
+			// Now need to attach dimensions to datasets. To do this, need to know what
+			// this dimension relates to. As by this stage the table name is not associated
+			// with the returned data, store this in the name field of row 0
+			
+			table_name = data[i][0].name;
+// console.log('%%%%%%%%%%%%%%%%%%%%%%%%% ', table_name);
+// console.log('%%%%%%%%%%%%%%%%%%%%%%%%% ', data[i][0]);
+			try {
+				table_sections = table_name.split('_');
+				datasets[table_sections[0]][table_sections[1]][table_sections[2]] = data[i];
+			} catch(err) {
+				console.log('\u001b[31mError loading up tables during startup.\u001b[39m\nIt is probably caused by forgetting to put the table name into the name field of row 0 of the dimension table\n', err);
+			}
+		}
+	})
+	.catch(error => {
+		console.log('\u001b[31mERROR:\u001b[39m', error);
+	})
+    .finally(() => {
+
+		// read preferences
+		fs.readFileAsync("./prefs/qs_specification_all.json", "utf8").then(file_data => {
+			qs_specification_all = JSON.parse(file_data);
+			console.log('\u001b[36mloaded preferences: \u001b[39m', file_data.length + ' bytes read\n', _.keys(qs_specification_all) );
+
+			// now construct any tree hierarchies necessary
+			_.forEach(qs_specification_all.sql, function(db, k) {
+				if(_.isEmpty(db.hierarchy)) {
+				} else {
+					// console.log('>>>>>>>>>>>>>>>>>>>>> k = ', k);
+					var dims, k2 = k.split('_');
+					try {dims = datasets[k2[0]][k2[1]].dimensions;} catch(e) {dims = []; console.log('\u001b[31mERROR:\u001b[39m trying to access database table that doesn\'t exist or is not returned due to lack of privileges for ' + k, e, datasets);}
+					datasets[k2[0]][k2[1]]['tree'] = {};
+// if(k != 'business_bpetime'){
+					_.forEach(dims, function(dim, i) {
+						datasets[k2[0]][k2[1]]['tree'][dim] = shapeshifter.create_flat_tree(datasets[k2[0]][k2[1]][dim]);
+					});
+// } else {
+// console.log('2 ********************\ndims\n', dims, '\ndata k2...\n', datasets[k2[0]][k2[1]]);
+// const dim = dims[0];
+// 
+// shapeshifter.create_flat_tree(datasets[k2[0]][k2[1]][dim]);
+// }
+				}
+			});
+		
+		})
+		.catch(error => {
+			console.log('\u001b[31mFILE READ ERROR:\u001b[39m', error);
+		
+			qs_specification_all = {"generic": 
+				{
+					"format": {"type": "string", "acceptable": ["csv", "json"], "fallback": "json", "multiple": false, "purpose": "output"},
+					"year_start": {"type": "integer", "min": 1998, "max": 2016, "fallback": 2016, "multiple": false, "purpose": "sql", "mutex": ["year"]},
+					"year_end": {"type": "integer", "min": 1998, "max": 2016, "fallback": 2016, "multiple": false, "purpose": "sql", "mutex": ["year"]},
+					"year": {"type": "integer", "min": 1998, "max": 2016, "fallback": 2016, "multiple": true, "purpose": "sql", "mutex": ["year_start", "year_end"]},
+					"limit": {"type": "integer", "min": 1, "fallback": "ALL", "multiple": false, "purpose": "sql"},
+					"offset": {"type": "integer", "min": 0, "fallback": 0, "multiple": false, "purpose": "sql"},
+					"count": {"type": "integer", "min": 1, "fallback": 99999, "multiple": false, "purpose": "sql"},
+					"fields": {"type": "string", "acceptable": [], "fallback": "all", "multiple": true, "purpose": "sql", "mutex": ["exclude_fields"]},
+					"exclude_fields": {"type": "string", "acceptable": [], "fallback": "all", "multiple": true, "purpose": "sql", "mutex": ["fields"]},
+					"orientation": {"type": "string", "acceptable": ["narrow", "wide"], "fallback": "narrow", "multiple": false, "purpose": "output"},
+					"output": {"type": "string", "acceptable": ["normal", "all", "suppressed", "revised", "missing"], "fallback": "all", "multiple": false, "purpose": "sql"}
+				}
+			}
+		
+		});
+		
+		
+		
+		
+		// Once tables AND prefs have been loaded, get some information on whether and dimensions have missing data.
+		// Do this by doing SELECT DISTINCT on main table and comparing to what's in the dimension table
+		
+		// console.log('\u001b[36mCross-checking tables and preferences \u001b[39m', qs_specification_all);
+		
+		db.tx(t => {
+			// creating a sequence of transaction queries:
+			var sql = construct_tree_usage_SQL('ref_order', 'business_bpe_sizeband', 'sizeband_order', 'business_bpe');
+			const q1 = t.any(sql);
+			// const q2 = t.any('INSERT INTO audit(entity, id) VALUES($1, $2) RETURNING id', ['users', 123]);
+			// console.log('\u001b[35msql:\u001b[39m', sql, tables, datasets);
+
+			// returning a promise that determines a successful transaction:
+			return t.batch([q1]); // all of the queries are to be resolved;
+		})
+		.then(data => {
+			// success, COMMIT was executed
+			console.log('\u001b[36msql:\u001b[39m', data);
+
+		})
+		.catch(error => {
+			// failure, ROLLBACK was executed
+			console.log('\u001b[31mconstruct_tree_usage_SQL ERROR:\u001b[39m', error);
+		})
+		.finally(() => {
+			end_timer('init');
+		});
+		
+	});
+	
+
+	
+}
+
+
+server.listen(8080, function() {
+	start = now();
+	console.log(`Application worker ${process.pid} started...!`);
+	console.log('%s listening at %s', server.name, server.url);
+	init();
+});
+
+
+
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-Querify.html">Querify</a></li><li><a href="module-Shapeshifter.html">Shapeshifter</a></li></ul><h3>Tutorials</h3><ul><li><a href="tutorial-01_introduction.html">01. Introduction</a></li><li><a href="tutorial-02_installation.html">02. Installation</a></li><li><a href="tutorial-03_getting_data.html">03. Using the API to get data</a></li><li><a href="tutorial-04_how_it_works.html">04. How it works</a></li><li><a href="tutorial-05_data_structure.html">05. Data structures</a></li><li><a href="tutorial-06_preparing_data.html">06. Preparing stats data for the API</a></li><li><a href="tutorial-07_server.html">07. Updating live server</a></li><li><a href="tutorial-08_ui_landing.html">08. UIs: landing pages</a></li><li><a href="tutorial-09_ui_dd.html">09.  UIs: data downloader</a></li><li><a href="tutorial-10_ui_graphs.html">10. Other UI possibilities: graphs</a></li><li><a href="tutorial-11_a1.html">Annex 1: Design Principles</a></li><li><a href="tutorial-12_a2.html">Annex 2: Engineering Principles</a></li><li><a href="tutorial-13_a3.html">Annex 3: Future Developments</a></li><li><a href="tutorial-14_a4_graphs.html">Annex 4: Graph Examples</a></li></ul><h3>Global</h3><ul><li><a href="global.html#end_timer">end_timer</a></li><li><a href="global.html#finalise_response">finalise_response</a></li><li><a href="global.html#format_yaml">format_yaml</a></li><li><a href="global.html#get_datasets">get_datasets</a></li><li><a href="global.html#normalizePort">normalizePort</a></li><li><a href="global.html#onError">onError</a></li><li><a href="global.html#onListening">onListening</a></li><li><a href="global.html#output_404">output_404</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.5.5</a> on Mon Jan 13 2020 17:36:08 GMT+0000 (Greenwich Mean Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

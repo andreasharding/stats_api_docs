@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Tutorial: 02. Installation</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Tutorial: 02. Installation</h1>
+
+    <section>
+
+<header>
+    
+
+    <h2>02. Installation</h2>
+</header>
+
+<article>
+    <link rel="stylesheet" href="./api.css">
+
+<h3>Server requirements</h3><p>The pre-requisites for the API are minimal. The API code is written in JavaScript running in node.js.
+The data is stored in a SQL database.
+There are some utilities that are optionally installed on the server to make administering the API easier.</p>
+<p>The architectural details of how the server is set up on the public-facing server compared with either a development computer or CBAS will vary slightly. These are discussed at the end below.</p>
+<h3>Database</h3><p>The database used is <a href="https://www.postgresql.org/download/">Postgres</a>, which is an open source database. 
+It is offered as an option when installing Ubuntu (which the server runs on) but can be installed afterwards easily.</p>
+<h3>Node, npm, nvm</h3><p><a href="https://nodejs.org/en/">Node</a> is the runtime engine for JavaScript not running in the browser (or other embedded environments).
+It lets you run JavaScript in the same way as any other language, and as such has full access to the file system, databases, network services etc.</p>
+<p>As part of the installation, the node package manager (npm) is installed, which is used for installing the code dependencies.</p>
+<p>As an optional extra, installing Node Version Manager <a href="https://github.com/creationix/nvm">nvm</a> will let you easily manage the update process for node itself. This is not required to get the API working and is just a convenient utility that can make updating node easier.</p>
+<h3>Server Architectures</h3><p>The initial server setup and installation/provision of postgres and node are the responsibility of an IT team such as CBAS.
+This is because there may be other things they have to do to ensure the security or robustness of the entire platform.
+Thus, depending on these and other reasons, the way the server is set up may vary slightly. This may be slightly disorientating.
+Here is a rough guide to some of the architectural idiosyncrasies of each.</p>
+<h4>Public server</h4><ul>
+<li>a single isolated Ubuntu server</li>
+<li>all services (node and postgres) running on same machine, which is convenient but arguably less robust</li>
+<li>has <code>tmux</code> installed, which is convenient for starting the node/API service</li>
+</ul>
+<h4>CBAS</h4><ul>
+<li>integrated into CBAS environment and security model</li>
+<li>servers distributed on various machines<ul>
+<li>postgres server</li>
+<li>node (installed on an existing webserver)</li>
+</ul>
+</li>
+<li>no <code>tmux</code> so you need to manually put processes into the background to make them persistent</li>
+</ul>
+<h4>Development computer</h4><ul>
+<li>probably similar setup to the public server</li>
+<li>don't need <code>tmux</code> or similar as server only running when you want anyway: may use tool like <code>nodemon</code> during development</li>
+<li>will have development tools like git</li>
+</ul>
+<p>In order to restart any process (on a *nix-based platform) after a crash or restart, the node API should have a <code>crontab</code> entry.
+Alternatively something like the <code>pm2</code> process manager can be used (but this is a paid-for product).</p>
+<p>Each platform has different login credentials and connection mechanisms for postgres, so this needs to be handled somehow.
+It is currently handled very simply by hardcoding credentials into the code and changing a variable to indicate which machine it is running on.
+This should be improved.</p>
+<h3>Code, configuration of database access</h3><p>The API is launched by running the API app in node.
+It is recommended to do this by invoking the following at a terminal:</p>
+<p><kbd>
+cd /path/to/API/directory/<br />
+node data_api.js
+</kbd></p>
+<p>(obviously replacing the filepath with the correct one depending on where the API files are copied to)</p>
+<p>This starts the API via an intermediary app that can launch multiple threads running the API that will improve throughput on a multi-core processor.</p>
+<p>For debugging and development, it is often simpler to run the API app directly:</p>
+<p><kbd>
+node api_app.js
+</kbd></p>
+<h3>General module dependencies</h3><p>These are the packages that are used in the API and are available on npm:</p>
+<ul>
+<li>restify</li>
+<li>restify-cors-middleware</li>
+<li>pg-promise</li>
+<li>fs</li>
+<li>bluebird</li>
+<li>performance-now</li>
+<li>url</li>
+<li>lodash</li>
+<li>winston</li>
+<li>papaparse</li>
+<li>jsdataframe</li>
+<li>js-yaml</li>
+<li>js2xmlparser</li>
+</ul>
+<p>The core of this API is a package called restify, which is a framework for implementing REST APIs. 
+Note that restify also implements many of the features of a <strong>webserver</strong>. 
+In fact, aside from some performance tweaks and some secondary features, the API could be built using a regular webserver package such as Express.</p>
+<div class="warning">
+<h4>restify version</h4>
+Since the API was completed, the way the restify module handles the parsing of the API's URL was changed.
+
+This was to improve performance. However one consequence was the removal of a feature necessary for the way this API is implemented.
+After a few versions, this functionality looks like it may have been reinstated. 
+However, until this has been checked to ensure it doesn't break the code, the restify module needs to remain at version 6 and must not be updated until this issue has been resolved.
+
+This is enforced in the package.json file with <code class="pale">&quot;restify&quot;: &quot;~6.0.1&quot;</code><br />
+
+</div>
+
+
+
+<h3>Local module dependencies</h3><p>These are modules that have been written specifically for this API, but because they deal with specific, self-contained, issues are amenable for separation out into their own module.</p>
+<p>Documentation for these modules is available from the menu on the right, listed under &quot;Modules&quot;
+The bespoke modules used are:</p>
+<ul>
+<li><strong>Shapeshifter</strong> which is a utility library that manipulates tree-shaped data structures.</li>
+<li><strong>Querify</strong> is the module that creates a SQL query from the cleaned user query inputs</li>
+</ul>
+<div class="warning">
+<h4>name clashes</h4>
+There are other packages on npm that also have the names Shapeshifter and Querify. 
+The names of the local modules will be changed to avoid being overwritten when using npm to update packages.
+Until this is done, beware that this will happen - keep a backup copy of both of these! 
+These are in a separate folder &quot;./correct_modules&quot; along with some static files needed for documentation.
+</div>
+
+
+<h3>UI dependencies</h3><p>These are used in the various user interfaces provided. This list is in addition and separate to the requirements for tha API.</p>
+<ul>
+<li><a href="https://lodash.com/">Lodash.js</a> Library that provides utility functions for common programming tasks</li>
+<li><a href="https://vuejs.org/">Vue.js</a> JavaScript framework for building user interfaces</li>
+<li><a href="https://github.com/axios/axios">Axios.js</a> Promise based HTTP client for the browser and node.js</li>
+<li><a href="https://d3js.org/">d3.js</a> Library for producing dynamic, interactive data visualizations in web browsers</li>
+<li><a href="https://github.com/eligrey/FileSaver.js/">FileSaver.js</a> An HTML5 saveAs() FileSaver implementation</li>
+<li><a href="https://www.papaparse.com/">PapaParse.js</a> CSV parsing library. Can also convert JSON back to CSV</li>
+<li><a href="https://jquery.com/">jQuery</a> Library designed to simplify the client-side scripting of HTML</li>
+<li><a href="https://jqueryui.com/">jQuery-ui</a> User interface interactions, effects, widgets, and themes built on top of jQuery</li>
+<li><a href="https://getbootstrap.com/">Bootstrap</a> Front-end CSS framework</li>
+<li><a href="https://github.com/flauwekeul/honeycomb">Honeycomb</a> Hexagonal grid utility</li>
+<li><a href="https://svgjs.com">SVG</a> Lightweight SVG manipulation library</li>
+<li><a href="https://github.com/mljs/ml">ml.js</a> Machine learning library</li>
+<li><a href="http://compromise.cool/">Compromise</a> Lightweight text pre-processing library</li>
+<li><a href="https://github.com/NaturalNode/natural">Natural</a> General NLP library</li>
+<li><a href="https://github.com/primaryobjects/lda">lda.js</a> LDA topic modeling library</li>
+<li><a href="https://github.com/turbomaze/word2vecjson">word2vecjson</a> Word2Vec library suitable for use in JavaScript</li>
+<li><a href="https://momentjs.com">moment.js</a> Date and time manipulation library</li>
+<li><a href="https://github.com/catamphetamine/read-excel-file">read-excel-file</a> Excel importing library</li>
+</ul>
+<h3>Ancillary</h3><p>This documentation generated by:
+<a href="http://usejsdoc.org/index.html">JSDoc</a> / <a href="https://github.com/jsdoc3/jsdoc">JSDoc on github</a></p>
+<h5>doc generation</h5><pre class="prettyprint source"><code>jsdoc --readme ./README.md -c ./conf.json --package ./package.json --verbose
+jsdoc --help
+./node_modules/.bin/jsdoc --readme ./README.md -c ./conf.json --package ./package.json --verbose</code></pre>
+</article>
+
+</section>
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-Querify.html">Querify</a></li><li><a href="module-Shapeshifter.html">Shapeshifter</a></li></ul><h3>Tutorials</h3><ul><li><a href="tutorial-01_introduction.html">01. Introduction</a></li><li><a href="tutorial-02_installation.html">02. Installation</a></li><li><a href="tutorial-03_getting_data.html">03. Using the API to get data</a></li><li><a href="tutorial-04_how_it_works.html">04. How it works</a></li><li><a href="tutorial-05_data_structure.html">05. Data structures</a></li><li><a href="tutorial-06_preparing_data.html">06. Preparing stats data for the API</a></li><li><a href="tutorial-07_server.html">07. Updating live server</a></li><li><a href="tutorial-08_ui_landing.html">08. UIs: landing pages</a></li><li><a href="tutorial-09_ui_dd.html">09.  UIs: data downloader</a></li><li><a href="tutorial-10_ui_graphs.html">10. Other UI possibilities: graphs</a></li><li><a href="tutorial-11_a1.html">Annex 1: Design Principles</a></li><li><a href="tutorial-12_a2.html">Annex 2: Engineering Principles</a></li><li><a href="tutorial-13_a3.html">Annex 3: Future Developments</a></li><li><a href="tutorial-14_a4_graphs.html">Annex 4: Graph Examples</a></li></ul><h3>Global</h3><ul><li><a href="global.html#end_timer">end_timer</a></li><li><a href="global.html#finalise_response">finalise_response</a></li><li><a href="global.html#format_yaml">format_yaml</a></li><li><a href="global.html#get_datasets">get_datasets</a></li><li><a href="global.html#normalizePort">normalizePort</a></li><li><a href="global.html#onError">onError</a></li><li><a href="global.html#onListening">onListening</a></li><li><a href="global.html#output_404">output_404</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.5.5</a> on Mon Jan 13 2020 17:36:08 GMT+0000 (Greenwich Mean Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

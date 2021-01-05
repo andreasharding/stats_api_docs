@@ -1,0 +1,110 @@
+@font-face {
+    font-family: 'bodytextslim-light';
+    src: url('./bodytextslim-light-webfont.woff2') format('woff2'),
+         url('./bodytextslim-light-webfont.woff') format('woff');
+    font-weight: normal;
+    font-style: normal;
+}
+
+.standard {
+    font-size: 12px;
+}
+.host {
+    background-color: #684254;
+}
+.route {
+    background-color: #615F78;
+}
+.type {
+    background-color: #497E8C;
+}
+.query, .query_example {
+    background-color: #77af6f;
+}
+.query_example {
+    color: #000;
+}
+.host_big {
+    background-color: #c6b8bf;
+}
+.route_big {
+    background-color: #c4c3cc;
+}
+.type_big {
+    background-color: #a4bfc6;
+}
+.query_big {
+    background-color: #cce1c9;
+}
+.pale {
+    background-color: #ccc;
+    color: #000;
+}
+.graph_box {
+        margin-bottom: 3em;
+}
+.warning, .advice {
+    width: 66%;
+    border-radius: 6px;
+    font-size: 100%;
+    padding: 6px 12px;
+}
+.warning {
+    background-color: #FED3CE;
+}
+.advice {
+    background-color: #EBF9F0;
+}
+table {
+    background-color: transparent;
+    border-spacing: 0;
+    border-collapse: collapse;
+    border: 0;
+}
+table.anatomy td {
+    padding: 0 10px 4px 0;
+    border: 0px solid #fff;
+}
+ul.bullet_list {
+    display: inline-block;
+    margin-top: 0;
+    margin-bottom: 0;
+    margin-left: 0;
+    margin-right: 0;
+    padding-left: 0;
+}
+.pagination_tight {
+    margin: 0.125em 0;
+}
+.pagination_tight li a{
+    color: black;
+}
+kbd {
+    padding: 2px 4px;
+    font-size: 90%;
+    color: #fff;
+    background-color: #333;
+    border-radius: 3px;
+    -webkit-box-shadow: inset 0 -1px 0 rgba(0,0,0,.25);
+    box-shadow: inset 0 -1px 0 rgba(0,0,0,.25);
+}
+kbd a:link,
+kbd a:visited,
+kbd a:hover,
+kbd a:active {
+    color: #fff;
+}
+.links line {
+  stroke: #999;
+  stroke-opacity: 0.6;
+}
+.nodes circle {
+  stroke: #fff;
+  stroke-width: 1.5px;
+}
+.label {
+    font-size: 15px;
+    font-family: 'bodytextslim-light';
+}
+#primary_demand_by_fuel_fc { width: 800px; }
+ol {padding-left: 0px;}

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Tutorial: Annex 2: Engineering Principles</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Tutorial: Annex 2: Engineering Principles</h1>
+
+    <section>
+
+<header>
+    
+
+    <h2>Annex 2: Engineering Principles</h2>
+</header>
+
+<article>
+    <link rel="stylesheet" href="./api.css">
+
+<h3>Architectural considerations for API design</h3><p>There are many ways to implement an API. Given anticipated usage patterns, there are choices that must be made concerning:</p>
+<ul>
+<li>the server hardware, location, operating system</li>
+<li>the database technology best suited for the type of data</li>
+<li>the language/ecosystem that provides the best tooling and performance</li>
+<li>the protocols to use across the connection to the user</li>
+<li>the data formats to offer to the users</li>
+</ul>
+<p>Some decisions can be deferred or even ignored:</p>
+<ul>
+<li>any additional features to provide, such as pivoting the data</li>
+<li>how to handle data too big to fit into memory</li>
+<li>any performance tuning that may be possible.</li>
+</ul>
+<h3>Technology stack</h3><p>The choice of technology stack for an API makes up the first three of the choices.
+The server, and its operating system, was chosen based on cost and availability: the API is hosted on a virtual machine that is made available through existing infrastructure. Ubuntu server was chosen as the operating system as it offers a stable platform without incurring licensing costs.</p>
+<p>The database, <strong>Postgres</strong>, was ultimately chosen for the same reasons (in fact it comes bundled with Ubuntu, so installation convenience was also a factor). However, other databases were explored:</p>
+<ul>
+<li>Apache Cassandra</li>
+<li>ElasticSearch</li>
+<li>MongoDB</li>
+<li>MySQL</li>
+</ul>
+<p>At the start of many projects, there is often concern about performance, capacity and throughput. This then results in over-specifying the system, but seems reasonable at the time. In the case of the API, the original expectation was to connect up to the energy statistics databases, which could have placed considerable demands on a system serving users in real-time. This proved to be an illusion, but some work was done in exploring the practicalities of using a big-data database. Apache Cassandra was investigated, largely because of ease of setting up compared with something like Hadoop. The main obstacle was in the necessity to know in advance what fields and values would be required in the query, which proved to be impossible to determine in advance given the way users expect to be able to choose any arbitrary combination of query parameters.</p>
+<p>The next decision was whether to use a SQL or no-SQL database. Within each dataset, the data is regular, thus eroding any benefit of schema-less data that no-SQL offers. SQL appeared to be within scope, dependent on performance. Given more realistic expectations on the size of the data, expected throughput demands as well as the benefit of using SQL for JOIN etc. statements not available with no-SQL, the choice was between MySQL and Postgres. The latter was chosen for performance, licensing and convenience reasons. In the operation so far, there is no evidence that Postgres has not performed adequately, though it is entirely possible to switch databases at a later date if necessary.</p>
+<p>The language and ecosystem is more controversial since people often identify with a particular programming language and passions often run high. As with databases, several language/tooling options were considered:</p>
+<ul>
+<li><strong>R</strong> + plumber</li>
+<li><strong>Python</strong> + Django/Flask/others</li>
+<li><strong>JavaScript</strong> + Express/Restify/others</li>
+<li><strong>Rust</strong> + Nickel/others</li>
+</ul>
+<p>There are many other possibilities, but the choice of language should also consider the skills of the team who may be called upon to maintain the system.</p>
+<p>Performance and throughput are still an issue, despite comments above seemingly to the contrary. This is why Rust was briefly considered, and a simple prototype was even developed. Rust is a recent systems level language created with support from the Mozilla Foundation, and is regarded in the develpoer community as a good language to work in, with speeds comparable with C/C++. It would have been possible to implement the API in Rust, but as nobody else in the team had even heard of the language, it was eliminated.</p>
+<p>At the opposite end of the performance spectrum is R. Although there is much expertise in R in the team, building an API is really an engineering challenge rather than an analytic one, and R's speed is too slow for it to be a serious contender.</p>
+<p>This left Python and JavaScript. When comparing speed of the language itself (not of any libraries used, which may well be written in C++), JavaScript is slightly faster. The tooling for both is quite similar, with both Flask and Express following the same pattern in the code (&quot;Sinatra-style routing&quot;). Levels of expertise in the team is similar. The final deciding factor was the requirement to build a user-interface, which tipped the balance in JavaScripts favour as it allowed for code-sharing between server and UI.</p>
+<h3>API architectural styles</h3><p>The way users interact with the API is determined by the protocols the API supports. These include <strong>SOAP</strong> or <strong>WebSocket</strong>, or architectural styles like <strong>REST</strong> <a href="https://en.wikipedia.org/wiki/Representational_state_transfer">(Representational state transfer)</a>.
+<strong>Web Services Description Language</strong> (WSDL) is an XML-based interface definition language that is used for describing the functionality offered by a web service. It provides a machine-readable description of how the service can be called, what parameters it expects, and what data structures it returns.</p>
+<p>REST-compliant web services allow requesting systems to access and manipulate textual representations of web resources using a uniform and predefined set of stateless operations.
+Other forms of web service exist, which expose their own arbitrary sets of operations such as WSDL and SOAP.</p>
+<p>Whilst having a self-describing interface is objectively <em>better</em> in some senses, REST is more familiar in that it looks just like a website URL. It is also simpler to implement for both client and server side code as it only requires the single query, rather than engaging in a sequence of requests and responses to establish what is available, as is the case with SOAP. Therefore, this is a REST interface.  </p>
+<h3>Data format</h3><p>When you call an API endpoint, there is no 'rule' dictating how the returned resource should be formatted. It could be in any format. The common formats are XML, JSON, CSV, though there are others such as YAML, HTML or even binary. Even within these container formats, the way the data is arranged is not standardised, requiring users to consult a data dictionary for each data source.</p>
+<p>In choosing the formats to offer, user needs obviously come first, but server performance issues play a part too. In speed tests, formatting XML took around 300ms, whilst the same data took 19ms formatted as JSON. This explains why XML is not offered as an output format, although the code remains in the API in a dormant state. Whilst being slower than JSON, CSV is still acceptably fast. HTML is also output.</p>
+<p>JSON is the preferred format; CSV is also offered for those who want to read the data into a spreadsheet. If you absolutely want to enable xml and yaml, adjust &quot;generic&quot;/&quot;format&quot;/&quot;acceptable&quot; to include these, as in [&quot;csv&quot;, &quot;json&quot;, &quot;xml&quot;, &quot;yaml&quot;].</p>
+<h4>Some research...</h4><p>The energy API is essentially a small server that is simply used to route API requests. It only has to parse the API call and build the correct SQL out of it. This task doesn't involve building complex web pages requiring multiple database queries or multiple complex algorithm invocations. Sure, it then queries the database and returns that data to the user, but the choice of database is a separate consideration. Something like node.js seems to be quite able to handle the running of the API server - see below:
+(from a <a href="https://www.quora.com/What-is-the-new-language-to-replace-PHP">discussion of what could replace php</a> )
+“There are various considerations one must face when choosing a framework, such as opinionated vs. un-opinionated, synchronous vs. asynchronous, speed of prototyping, etc. For example, it would be ludicrous to not use Node.js or Play for a messaging web application with a lot of clients. It would be overkill to use Rails or Django for a small server that is simply used to route API requests. Also, depending on how skilled you are at scaling applications, Flask might not be the best option for a website with a ton of concurrent requests.”</p>
+<p>then later on...
+“For very highly-interactive applications, especially where multiple users need to be able to interact in real-time, the Actor abstraction is the best fit, by far: Akka, Erlang, Pony, Scala, and several other languages have actors as the core abstraction, but any functional language will also have libraries available for it. But, you’ll be hard-pressed to find a language that doesn’t have an actor model library.
+As to the event model, I would not say it’s a very good choice, particularly as the languages which use an event model don’t typically have good thread support or a capability for horizontal scaling. Don’t use Node, kids.”</p>
+<p>also...
+“On the backend, C++, Go, Scala, and maybe Rust for high performance, Python and node.js where performance is less important.”</p>
+<p><a href="https://golang.org/">Go</a>
+<a href="https://www.rust-lang.org/en-US/">Rust</a>
+<a href="http://elixir-lang.org/">Elixir</a>
+<a href="https://nodejs.org/">JavaScript/Node</a>
+<a href="https://www.scala-lang.org/">Scala</a></p>
+<h3>Performance</h3><h4>Thread hypervisor</h4><p>OS threads/cores support is handled in a separate JS file that initiates multiple threads and starts the app in each
+This means there are multiple instances of the app running, so care must be taken with shared resources like databases to avoid race conditions.
+The only shared resource is postgres. In this scenario, the database is never written to, so wrapping each SQL statement in transactions is probably not necessary.</p>
+<h4>throughput:</h4><ul>
+<li><a href="http://stackoverflow.com/questions/17589178/why-should-i-use-restify">why-should-i-use-restify</a></li>
+<li><a href="https://raygun.io/blog/2015/03/node-performance-hapi-express-js-restify/">comparison of node frameworks</a></li>
+<li><a href="https://raygun.com/blog/2016/06/node-performance/">node-performance</a></li>
+<li><a href="https://httpd.apache.org/docs/2.4/programs/ab.html">benchmarking program used</a></li>
+</ul>
+<h4>throttling?</h4><h3>Security</h3><ul>
+<li>input sanitisation</li>
+<li>HTTPS?
+user management: ACL or anonymity?</li>
+</ul>
+<h4>implemention</h4><ul>
+<li><a href="https://blog.risingstack.com/node-js-security-checklist/">node-js-security-checklist</a></li>
+<li><a href="https://expressjs.com/en/advanced/best-practice-security.html">expressjs best-practice-security</a></li>
+<li><a href="https://blog.risingstack.com/node-js-security-tips/">node-js-security-tips</a></li>
+<li><a href="https://nodesecurity.io/advisories">nodesecurity advisories</a></li>
+</ul>
+<h4>user authentication</h4><p>maybe allowing extra features once authenticated - e.g. sockets)</p>
+<h4>DTrace?</h4><ul>
+<li><a href="http://dtrace.org/">dtrace</a></li>
+<li><a href="https://en.wikipedia.org/wiki/DTrace">wikipedia</a></li>
+</ul>
+<h4>data size &amp; memory constraints</h4><h3>Other</h3><h4>HTTP2/SPDY protocols?</h4><h4>clean up URLs before routes are matched with the built in restify.pre.sanitizePath ?</h4><h4>what port number to use? if need 80/443, consider using reverse proxy</h4>
+</article>
+
+</section>
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-Querify.html">Querify</a></li><li><a href="module-Shapeshifter.html">Shapeshifter</a></li></ul><h3>Tutorials</h3><ul><li><a href="tutorial-01_introduction.html">01. Introduction</a></li><li><a href="tutorial-02_installation.html">02. Installation</a></li><li><a href="tutorial-03_getting_data.html">03. Using the API to get data</a></li><li><a href="tutorial-04_how_it_works.html">04. How it works</a></li><li><a href="tutorial-05_data_structure.html">05. Data structures</a></li><li><a href="tutorial-06_preparing_data.html">06. Preparing stats data for the API</a></li><li><a href="tutorial-07_server.html">07. Updating live server</a></li><li><a href="tutorial-08_ui_landing.html">08. UIs: landing pages</a></li><li><a href="tutorial-09_ui_dd.html">09.  UIs: data downloader</a></li><li><a href="tutorial-10_ui_graphs.html">10. Other UI possibilities: graphs</a></li><li><a href="tutorial-11_a1.html">Annex 1: Design Principles</a></li><li><a href="tutorial-12_a2.html">Annex 2: Engineering Principles</a></li><li><a href="tutorial-13_a3.html">Annex 3: Future Developments</a></li><li><a href="tutorial-14_a4_graphs.html">Annex 4: Graph Examples</a></li></ul><h3>Global</h3><ul><li><a href="global.html#end_timer">end_timer</a></li><li><a href="global.html#finalise_response">finalise_response</a></li><li><a href="global.html#format_yaml">format_yaml</a></li><li><a href="global.html#get_datasets">get_datasets</a></li><li><a href="global.html#normalizePort">normalizePort</a></li><li><a href="global.html#onError">onError</a></li><li><a href="global.html#onListening">onListening</a></li><li><a href="global.html#output_404">output_404</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.5.5</a> on Mon Jan 13 2020 17:36:08 GMT+0000 (Greenwich Mean Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

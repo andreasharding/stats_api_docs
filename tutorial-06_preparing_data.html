@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Tutorial: 06. Preparing stats data for the API</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Tutorial: 06. Preparing stats data for the API</h1>
+
+    <section>
+
+<header>
+    
+
+    <h2>06. Preparing stats data for the API</h2>
+</header>
+
+<article>
+    <link rel="stylesheet" href="./api.css">
+
+<p>Preparing a statistical release spreadsheet for use in an API requires putting every unique item of data in the spreadsheet into one unique row in a database. This means no aggregate figures (as they aren’t unique, being made up of the raw data), and it means only one copy (i.e. no duplicates - self-evidently not unique!). Each unique data point is described by a unique combination of attributes, so that a user query specifying all attributes will have just one data point returned (and if certain attributes are not specified, will return all data points that match the other attributes). In some datasets, certain combinations of attributes will map onto a non-existent datum (in which case the data is <strong>sparse</strong> - see below), and this requires extra care in handling and presentation.</p>
+<h3>1. Identify the dimensions of each individual table</h3><p>The dimensions of the data are, like x &amp; y axes on a graph, able to uniquely identify any given data point(and in doing so, satisfy the conditions of being necessary and sufficient). Even a simple table may have more dimensions than at first glance because of the context it is presented in, which can introduce implicit dimensions.</p>
+<p>This looks like a simple two dimensional table, but it actually contains three:</p>
+<pre>
+
+Number of businesses in the UK private sector 
+and their associated employment and turnover by size of business, start of 2016
+                   | Businesses | Employment |   Turnover 
+                   |  thousands |  thousands | £ millions 
+-------------------+------------+------------+-----------------
+ All businesses    |  5,497,670 |     26,204 |  3,860,870 
+ With no employees |  4,172,185 |      4,535 |    254,545 
+ 1-9 employees     |  1,081,425 |      3,978 |    463,421 
+ 10-49 employees   |    203,550 |      3,970 |    560,788 
+
+</pre>
+
+
+<p>etc. ...</p>
+<p>Imagine you were splotting this as a graph. Here the x-axis contains Businesses, Employment and Turnover, and the y-axis contains indications of the size of a business. For want of a better term, and given the context of this publication, which is the Business Population Estimate, we will just call the dimension containing Businesses, Employment and Turnover &quot;measure&quot; - these are the things we want to measure. Let us call the y-axis dimension &quot;sizeband&quot; as mostly it is concerned with an aggregated figure relating to &quot;binning&quot; business by their size.
+But what about the &quot;2016&quot; nestling in the title? This publication is published every year, so &quot;year&quot; is an implicit dimension that will need to be specified, as otherwise an individual datapoint will not be unique, particularly if the data is published annually.</p>
+<h4>Why? How is this even useful?</h4><p>Once it becomes possible to uniquely identify any single data point, then users can construct a query to get at this. It is important to make the query as easy as possible to understand, as the more dimensions there are, the more terms a user will have to include in the query.
+To try to keep this burden to a minimum, the dimensions are divided up into two groups.
+The most important group is used for those dimensions that if omitted from the user query (or were malformed) would result in the API responding with an item-not-found error, like a 404 error on a website. These are called routes, or routing parameters (think of these as taking you to your data)
+Then there are dimensions where the API could make a sensible guess if it were missing. In this case, a query would not result in an error, but could instead return a list with zero items, indicating that although the query is properly formed, there were no items found in the database. An example of this would be searching for historic data specifying year=2029. This category of dimensions are put into what is called the query string (think of these as narrowing down the range of data). With these types of parameters, the API can sometimes check that they are in the correct range.</p>
+<p>Each query is a web URL, structured like this:
+http://api.example.com/route_parameter_1/route_parameter_2/route_parameter_3?query_parameter_1=123&amp;query_parameter_2=something</p>
+<h4>Things to watch out for:</h4><p>a) multiple datasets combined into a single table
+It is not always the case that what is presented as one table in a worksheet is actually indivisible and referring to a single concept. For instance, consider BPE table 8:</p>
+<pre>
+                                  | Businesses per 10,000 adults                
+                                  | Size (number of employees)                
+                | Resident Adults | 
+                |   Mid-year 2015 | None | 1-49 | 50-249 | 250+ | All sizes
+----------------+-----------------+------+------+--------+------+--------------
+ United Kingdom |      52,852,169 |  789 |  243 |      6 |    1 |     1,040
+ North East     |       2,159,604 |  498 |  175 |      5 |    1 |       679
+</pre>
+
+<p>etc. ...</p>
+<p>When unpivoted (see part 2. below), put into a database, and after adding a &quot;unit&quot; field, it is apparent that not all cells contain the same type of measurement (in this case, &quot;Businesses per 10,000 adults&quot; is labelled as a <strong>ratio</strong> to differentiate it from a simple <strong>number</strong>). This is not necessarily a problem, as long as a cell in the spreadsheet (which translates to a single row in the database) is uniquely addressable, and it makes logical sense. However, it always demands closer inspection.</p>
+<pre>
+ measure |  value   |     sizeband     |          region          |  unit
+---------+----------+------------------+--------------------------+--------
+ B       | 52852169 | total population | UK                       | number
+ B       |      789 | none             | UK                       |  ratio
+ B       |      243 | 1-49             | UK                       |  ratio
+ B       |        6 | 50-249           | UK                       |  ratio
+ B       |        1 | 250+             | UK                       |  ratio
+ B       |     1040 | All sizes        | UK                       |  ratio
+ B       |  2159604 | total population | North East               | number
+ B       |      498 | none             | North East               |  ratio
+ B       |      175 | 1-49             | North East               |  ratio
+ B       |        5 | 50-249           | North East               |  ratio
+ B       |        1 | 250+             | North East               |  ratio
+ B       |      679 | All sizes        | North East               |  ratio
+</pre>
+
+<p> etc. ...</p>
+<p>In this case it is apparent that the sizeband field: &quot;total population&quot; is not really a member of the set of valid sizebands. It is instead a measurement of the number of resident adults. This is an inconsistency that cannot be resolved, so BPE table 8 actually contains two logical tables: Resident Adults will need to be separated out into its own table in the database for querying independently of the main data set (and potentially combined with the main data by using a SQL ‘JOIN’)</p>
+<h3>2. Unpivot the data</h3><p>Databases are usually more strict than spreadsheets:
+Each field is specified to contain a specific data type, integer, floating point number, string etc.
+They are also optimised to store data in many rows of few columns.
+This begs the question of what to do with a spreadsheet table where data is arranged in many columns. To store such &quot;wide&quot; data in a database, you need to rearrange the columns to put each below the previous one, rather than next to it. This is called unpivoting. This is what unpivoting looks like:</p>
+<pre>
+ id |  column1  |  column2  | column3 |
+----+-----------+-----------+---------+-
+ 1  |       123 | something |      UK |
+ 2  |       234 |   nothing |      XY |
+</pre>
+
+<p>Becomes:</p>
+<pre>
+ id |  col_name |   value   |
+----+-----------+-----------+-
+ 1  |   column1 |       123 |
+ 2  |   column1 |       234 |
+ 1  |   column2 | something |
+ 2  |   column2 |   nothing |
+ 1  |   column3 |        UK |
+ 2  |   column3 |        XY |
+</pre>
+
+<h4>Why unpivot?</h4><p>It may be tempting to just add an the necessary fields to the database for each of the columns in the spreadsheet. For instance some other attribute may subsequently need to be stored in a new column4.
+The problem with this is that when a user selects a single cell using the dimensions as presented above, they don't get the single cell they are expecting - they get all the cells in that row. Of course, if they know the fieldnames they can further select the field/cell they are after - but this is messy and ultimately unsustainable.
+Not unpivoting your table also means that features that a database offers, such as grouping and aggregating, aren't so easy to use.</p>
+<h3>Dealing with sparse data</h3><p>If, once the data is in the API database, many requests result in no data being returned, this could be a symptom of sparse data. Here is an example of what this looks like:</p>
+<table border=1 cellspacing=0 cellpadding=0 width=302
+ style='margin-left:5.4pt;background:#00A2FF;border-collapse:collapse;
+ border:none'>
+ <thead>
+  <tr style='height:24.9pt'>
+   <td width=101 valign=top style='width:75.5pt;border:solid white 1.0pt;
+   border-bottom:solid white 3.0pt;background:#FEFFFF;padding:0cm 0cm 0cm 0cm;
+   height:24.9pt'>
+   <p><b><span>dense data</span></b></p>
+   </td>
+   <td width=100 valign=top style='width:75.0pt;border-top:solid white 1.0pt;
+   border-left:none;border-bottom:solid white 3.0pt;border-right:solid white 1.0pt;
+   background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+   <p><b><span>X</span></b></p>
+   </td>
+   <td width=101 valign=top style='width:75.7pt;border-top:solid white 1.0pt;
+   border-left:none;border-bottom:solid white 3.0pt;border-right:solid white 1.0pt;
+   background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+   <p><b><span>Y</span></b></p>
+   </td>
+  </tr>
+ </thead>
+ <tr style='height:24.9pt'>
+  <td width=101 valign=top style='width:75.5pt;border:solid white 1.0pt;
+  border-top:none;background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+  <p><b><span>A</span></b></p>
+  </td>
+  <td width=100 valign=top style='width:75.0pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+  <p><span>100</span></p>
+  </td>
+  <td width=101 valign=top style='width:75.7pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+  <p><span>201</span></p>
+  </td>
+ </tr>
+ <tr style='height:23.9pt'>
+  <td width=101 valign=top style='width:75.5pt;border:solid white 1.0pt;
+  border-top:none;background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><b><span>B</span></b></p>
+  </td>
+  <td width=100 valign=top style='width:75.0pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>120</span></p>
+  </td>
+  <td width=101 valign=top style='width:75.7pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>229</span></p>
+  </td>
+ </tr>
+ <tr style='height:23.9pt'>
+  <td width=101 valign=top style='width:75.5pt;border:solid white 1.0pt;
+  border-top:none;background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><b><span>C</span></b></p>
+  </td>
+  <td width=100 valign=top style='width:75.0pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>134</span></p>
+  </td>
+  <td width=101 valign=top style='width:75.7pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>262</span></p>
+  </td>
+ </tr>
+ <tr style='height:23.9pt'>
+  <td width=101 valign=top style='width:75.5pt;border:solid white 1.0pt;
+  border-top:none;background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><b><span>D</span></b></p>
+  </td>
+  <td width=100 valign=top style='width:75.0pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>157</span></p>
+  </td>
+  <td width=101 valign=top style='width:75.7pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>271</span></p>
+  </td>
+ </tr>
+</table>
+
+<p><br /></p>
+<table border=1 cellspacing=0 cellpadding=0 width=302
+ style='margin-left:5.4pt;background:#00A2FF;border-collapse:collapse;
+ border:none'>
+ <thead>
+  <tr style='height:24.9pt'>
+   <td width=101 valign=top style='width:75.5pt;border:solid white 1.0pt;
+   border-bottom:solid white 3.0pt;background:#FEFFFF;padding:0cm 0cm 0cm 0cm;
+   height:24.9pt'>
+   <p><b><span>sparse data</span></b></p>
+   </td>
+   <td width=100 valign=top style='width:75.0pt;border-top:solid white 1.0pt;
+   border-left:none;border-bottom:solid white 3.0pt;border-right:solid white 1.0pt;
+   background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+   <p><b><span>X</span></b></p>
+   </td>
+   <td width=101 valign=top style='width:75.7pt;border-top:solid white 1.0pt;
+   border-left:none;border-bottom:solid white 3.0pt;border-right:solid white 1.0pt;
+   background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+   <p><b><span>Y</span></b></p>
+   </td>
+  </tr>
+ </thead>
+ <tr style='height:24.9pt'>
+  <td width=101 valign=top style='width:75.5pt;border:solid white 1.0pt;
+  border-top:none;background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+  <p><b><span>A</span></b></p>
+  </td>
+  <td width=100 valign=top style='width:75.0pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+  <p><span>100</span></p>
+  </td>
+  <td width=101 valign=top style='width:75.7pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+  <p><span>201</span></p>
+  </td>
+ </tr>
+ <tr style='height:23.9pt'>
+  <td width=101 valign=top style='width:75.5pt;border:solid white 1.0pt;
+  border-top:none;background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><b><span>B</span></b></p>
+  </td>
+  <td width=100 valign=top style='width:75.0pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>120</span></p>
+  </td>
+  <td width=101 valign=top style='width:75.7pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>&nbsp;</span></p>
+  </td>
+ </tr>
+ <tr style='height:23.9pt'>
+  <td width=101 valign=top style='width:75.5pt;border:solid white 1.0pt;
+  border-top:none;background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><b><span>C</span></b></p>
+  </td>
+  <td width=100 valign=top style='width:75.0pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>134</span></p>
+  </td>
+  <td width=101 valign=top style='width:75.7pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>&nbsp;</span></p>
+  </td>
+ </tr>
+ <tr style='height:23.9pt'>
+  <td width=101 valign=top style='width:75.5pt;border:solid white 1.0pt;
+  border-top:none;background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><b><span>D</span></b></p>
+  </td>
+  <td width=100 valign=top style='width:75.0pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>157</span></p>
+  </td>
+  <td width=101 valign=top style='width:75.7pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>&nbsp;</span></p>
+  </td>
+ </tr>
+</table>
+
+
+
+<p>In the dense data, all cells have a value entered, whereas only row A has all values - data is missing for the region indicated by rows B, C &amp; D in column Y. Clearly, if a user requests data for cell B/Y, they will be disappointed as they will have a response with zero items.</p>
+<p>If the data is very sparse, it may be worth taking steps to mitigate the problem for users. Here are some suggestions:</p>
+<h4>1. Overlay metadata</h4><p>Each cell that is present is tagged with metadata (indicated by [i] and [j] below) and this is what is offered to the user to search on:</p>
+<table border=1 cellspacing=0 cellpadding=0 width=302
+ style='margin-left:5.4pt;background:#00A2FF;border-collapse:collapse;
+ border:none'>
+ <thead>
+  <tr style='height:24.9pt'>
+   <td width=101 valign=top style='width:75.5pt;border:solid white 1.0pt;
+   border-bottom:solid white 3.0pt;background:#FEFFFF;padding:0cm 0cm 0cm 0cm;
+   height:24.9pt'>
+   <p><b><span>sparse data</span></b></p>
+   </td>
+   <td width=100 valign=top style='width:75.0pt;border-top:solid white 1.0pt;
+   border-left:none;border-bottom:solid white 3.0pt;border-right:solid white 1.0pt;
+   background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+   <p><b><span>X</span></b></p>
+   </td>
+   <td width=101 valign=top style='width:75.7pt;border-top:solid white 1.0pt;
+   border-left:none;border-bottom:solid white 3.0pt;border-right:solid white 1.0pt;
+   background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+   <p><b><span>Y</span></b></p>
+   </td>
+  </tr>
+ </thead>
+ <tr style='height:24.9pt'>
+  <td width=101 valign=top style='width:75.5pt;border:solid white 1.0pt;
+  border-top:none;background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+  <p><b><span>A</span></b></p>
+  </td>
+  <td width=100 valign=top style='width:75.0pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+  <p><span>100 </span><b><span style='font-family:"Helvetica Neue",serif;
+  color:#FF644E'>[i]</span></b></p>
+  </td>
+  <td width=101 valign=top style='width:75.7pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+  <p><span>201 </span><b><span style='font-family:"Helvetica Neue",serif;
+  color:#FF644E'>[i]</span></b></p>
+  </td>
+ </tr>
+ <tr style='height:23.9pt'>
+  <td width=101 valign=top style='width:75.5pt;border:solid white 1.0pt;
+  border-top:none;background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><b><span>B</span></b></p>
+  </td>
+  <td width=100 valign=top style='width:75.0pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>120 </span><b><span style='font-family:"Helvetica Neue",serif;
+  color:#FF644E'>[i]</span></b></p>
+  </td>
+  <td width=101 valign=top style='width:75.7pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>&nbsp;</span></p>
+  </td>
+ </tr>
+ <tr style='height:23.9pt'>
+  <td width=101 valign=top style='width:75.5pt;border:solid white 1.0pt;
+  border-top:none;background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><b><span>C</span></b></p>
+  </td>
+  <td width=100 valign=top style='width:75.0pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>134 </span><b><span style='font-family:"Helvetica Neue",serif;
+  color:#FF644E'>[j]</span></b></p>
+  </td>
+  <td width=101 valign=top style='width:75.7pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>&nbsp;</span></p>
+  </td>
+ </tr>
+ <tr style='height:23.9pt'>
+  <td width=101 valign=top style='width:75.5pt;border:solid white 1.0pt;
+  border-top:none;background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><b><span>D</span></b></p>
+  </td>
+  <td width=100 valign=top style='width:75.0pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>157 </span><b><span style='font-family:"Helvetica Neue",serif;
+  color:#FF644E'>[j]</span></b></p>
+  </td>
+  <td width=101 valign=top style='width:75.7pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>&nbsp;</span></p>
+  </td>
+ </tr>
+</table>
+
+
+
+
+<p>Here, the user requests are for metadata = [i] and/or metadata = [j], which are pseudo-dimensions that are offered to the user to search on: a request for [i] would give {100, 201, 120} and [j] would give {134, 157}, and the user may not even be given the option of using the dimensions containing A, B, C, D or X, Y.
+This will only work if the metadata [i], [j] has some meaning to the user and can be properly explained to them.</p>
+<h4>2. Grouping of dimension elements</h4><p>In some cases, the dimensions can be somehow grouped. For instance A and B might be grouped together and so might C and D. This means a request for B/Y would internally be translated into a request for A/B/Y and return {201}. This might be appropriate when the dimensions are hierarchical:</p>
+<p>In the following data, M and N have no data attached.</p>
+<table border=1 cellspacing=0 cellpadding=0 width=302
+ style='margin-left:5.4pt;background:#00A2FF;border-collapse:collapse;
+ border:none'>
+ <thead>
+  <tr style='height:24.9pt'>
+   <td width=101 valign=top style='width:75.5pt;border:solid white 1.0pt;
+   border-bottom:solid white 3.0pt;background:#FEFFFF;padding:0cm 0cm 0cm 0cm;
+   height:24.9pt'>
+   <p><b><span>dense data</span></b></p>
+   </td>
+   <td width=100 valign=top style='width:75.0pt;border-top:solid white 1.0pt;
+   border-left:none;border-bottom:solid white 3.0pt;border-right:solid white 1.0pt;
+   background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+   <p><b><span>X</span></b></p>
+   </td>
+   <td width=101 valign=top style='width:75.7pt;border-top:solid white 1.0pt;
+   border-left:none;border-bottom:solid white 3.0pt;border-right:solid white 1.0pt;
+   background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+   <p><b><span>Y</span></b></p>
+   </td>
+  </tr>
+ </thead>
+ <tr style='height:24.9pt'>
+  <td width=101 valign=top style='width:75.5pt;border:solid white 1.0pt;
+  border-top:none;background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+  <p><b><span>A</span></b></p>
+  </td>
+  <td width=100 valign=top style='width:75.0pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+  <p><span>100</span></p>
+  </td>
+  <td width=101 valign=top style='width:75.7pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+  <p><span>201</span></p>
+  </td>
+ </tr>
+ <tr style='height:23.9pt'>
+  <td width=101 valign=top style='width:75.5pt;border:solid white 1.0pt;
+  border-top:none;background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><b><span>B</span></b></p>
+  </td>
+  <td width=100 valign=top style='width:75.0pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>120</span></p>
+  </td>
+  <td width=101 valign=top style='width:75.7pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>229</span></p>
+  </td>
+ </tr>
+ <tr style='height:23.9pt'>
+  <td width=101 valign=top style='width:75.5pt;border:solid white 1.0pt;
+  border-top:none;background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><b><span>C</span></b></p>
+  </td>
+  <td width=100 valign=top style='width:75.0pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>134</span></p>
+  </td>
+  <td width=101 valign=top style='width:75.7pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>262</span></p>
+  </td>
+ </tr>
+ <tr style='height:23.9pt'>
+  <td width=101 valign=top style='width:75.5pt;border:solid white 1.0pt;
+  border-top:none;background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><b><span>D</span></b></p>
+  </td>
+  <td width=100 valign=top style='width:75.0pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>157</span></p>
+  </td>
+  <td width=101 valign=top style='width:75.7pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>271</span></p>
+  </td>
+ </tr>
+ <tr style='height:23.9pt'>
+  <td width=101 valign=top style='width:75.5pt;border:solid white 1.0pt;
+  border-top:none;background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><b><span>M</span></b></p>
+  </td>
+  <td width=100 valign=top style='width:75.0pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>&nbsp;</span></p>
+  </td>
+  <td width=101 valign=top style='width:75.7pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>&nbsp;</span></p>
+  </td>
+ </tr>
+ <tr style='height:23.9pt'>
+  <td width=101 valign=top style='width:75.5pt;border:solid white 1.0pt;
+  border-top:none;background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><b><span>N</span></b></p>
+  </td>
+  <td width=100 valign=top style='width:75.0pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>&nbsp;</span></p>
+  </td>
+  <td width=101 valign=top style='width:75.7pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>&nbsp;</span></p>
+  </td>
+ </tr>
+</table>
+
+<p>However, if M and N are actually parent categories to A, B and C, D respectively, the data can be rearranged as here:</p>
+<table border=1 cellspacing=0 cellpadding=0 width=301
+ style='margin-left:5.4pt;background:#00A2FF;border-collapse:collapse;
+ border:none'>
+ <thead>
+  <tr style='height:24.9pt'>
+   <td width=40 valign=top style='width:30.0pt;border:solid white 1.0pt;
+   background:#FEFFFF;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+   <p><b><span>sparse data</span></b></p>
+   </td>
+   <td width=59 valign=top style='width:44.4pt;border-top:solid white 1.0pt;
+   border-left:none;border-bottom:solid white 3.0pt;border-right:solid white 1.0pt;
+   background:#FEFFFF;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+   <p><span>&nbsp;</span></p>
+   </td>
+   <td width=101 valign=top style='width:75.6pt;border-top:solid white 1.0pt;
+   border-left:none;border-bottom:solid white 3.0pt;border-right:solid white 1.0pt;
+   background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+   <p><b><span>X</span></b></p>
+   </td>
+   <td width=101 valign=top style='width:75.9pt;border-top:solid white 1.0pt;
+   border-left:none;border-bottom:solid white 3.0pt;border-right:solid white 1.0pt;
+   background:#7FD0FF;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+   <p><b><span>Y</span></b></p>
+   </td>
+  </tr>
+ </thead>
+ <tr style='height:24.9pt'>
+  <td width=40 valign=top style='width:30.0pt;border-top:none;border-left:solid white 1.0pt;
+  border-bottom:none;border-right:solid white 1.0pt;background:#B0EB9A;
+  padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+  <p><b><span>M</span></b></p>
+  </td>
+  <td width=59 valign=top style='width:44.4pt;border-top:none;border-left:none;
+  border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;background:
+  #7FD0FF;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+  <p><b><span>A</span></b></p>
+  </td>
+  <td width=101 valign=top style='width:75.6pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+  <p><span>100</span></p>
+  </td>
+  <td width=101 valign=top style='width:75.9pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:24.9pt'>
+  <p><span>201</span></p>
+  </td>
+ </tr>
+ <tr style='height:23.9pt'>
+  <td width=40 valign=top style='width:30.0pt;border:solid white 1.0pt;
+  border-top:none;background:#B0EB9A;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>&nbsp;</span></p>
+  </td>
+  <td width=59 valign=top style='width:44.4pt;border-top:none;border-left:none;
+  border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;background:
+  #7FD0FF;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><b><span>B</span></b></p>
+  </td>
+  <td width=101 valign=top style='width:75.6pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>120</span></p>
+  </td>
+  <td width=101 valign=top style='width:75.9pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>229</span></p>
+  </td>
+ </tr>
+ <tr style='height:23.9pt'>
+  <td width=40 valign=top style='width:30.0pt;border-top:none;border-left:solid white 1.0pt;
+  border-bottom:none;border-right:solid white 1.0pt;background:#FFB1A6;
+  padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><b><span>N</span></b></p>
+  </td>
+  <td width=59 valign=top style='width:44.4pt;border-top:none;border-left:none;
+  border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;background:
+  #7FD0FF;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><b><span>C</span></b></p>
+  </td>
+  <td width=101 valign=top style='width:75.6pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>134</span></p>
+  </td>
+  <td width=101 valign=top style='width:75.9pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>262</span></p>
+  </td>
+ </tr>
+ <tr style='height:23.9pt'>
+  <td width=40 valign=top style='width:30.0pt;border:solid white 1.0pt;
+  border-top:none;background:#FFB1A6;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>&nbsp;</span></p>
+  </td>
+  <td width=59 valign=top style='width:44.4pt;border-top:none;border-left:none;
+  border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;background:
+  #7FD0FF;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><b><span>D</span></b></p>
+  </td>
+  <td width=101 valign=top style='width:75.6pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>157</span></p>
+  </td>
+  <td width=101 valign=top style='width:75.9pt;border-top:none;border-left:
+  none;border-bottom:solid white 1.0pt;border-right:solid white 1.0pt;
+  background:white;padding:0cm 0cm 0cm 0cm;height:23.9pt'>
+  <p><span>271</span></p>
+  </td>
+ </tr>
+</table>
+
+
+
+<p>This means that a query for M/Y will result in {201, 229} being returned.</p>
+</article>
+
+</section>
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-Querify.html">Querify</a></li><li><a href="module-Shapeshifter.html">Shapeshifter</a></li></ul><h3>Tutorials</h3><ul><li><a href="tutorial-01_introduction.html">01. Introduction</a></li><li><a href="tutorial-02_installation.html">02. Installation</a></li><li><a href="tutorial-03_getting_data.html">03. Using the API to get data</a></li><li><a href="tutorial-04_how_it_works.html">04. How it works</a></li><li><a href="tutorial-05_data_structure.html">05. Data structures</a></li><li><a href="tutorial-06_preparing_data.html">06. Preparing stats data for the API</a></li><li><a href="tutorial-07_server.html">07. Updating live server</a></li><li><a href="tutorial-08_ui_landing.html">08. UIs: landing pages</a></li><li><a href="tutorial-09_ui_dd.html">09.  UIs: data downloader</a></li><li><a href="tutorial-10_ui_graphs.html">10. Other UI possibilities: graphs</a></li><li><a href="tutorial-11_a1.html">Annex 1: Design Principles</a></li><li><a href="tutorial-12_a2.html">Annex 2: Engineering Principles</a></li><li><a href="tutorial-13_a3.html">Annex 3: Future Developments</a></li><li><a href="tutorial-14_a4_graphs.html">Annex 4: Graph Examples</a></li></ul><h3>Global</h3><ul><li><a href="global.html#end_timer">end_timer</a></li><li><a href="global.html#finalise_response">finalise_response</a></li><li><a href="global.html#format_yaml">format_yaml</a></li><li><a href="global.html#get_datasets">get_datasets</a></li><li><a href="global.html#normalizePort">normalizePort</a></li><li><a href="global.html#onError">onError</a></li><li><a href="global.html#onListening">onListening</a></li><li><a href="global.html#output_404">output_404</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.5.5</a> on Mon Jan 13 2020 17:36:08 GMT+0000 (Greenwich Mean Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>

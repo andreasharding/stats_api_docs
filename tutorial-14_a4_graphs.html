@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Tutorial: Annex 4: Graph Examples</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Tutorial: Annex 4: Graph Examples</h1>
+
+    <section>
+
+<header>
+    
+
+    <h2>Annex 4: Graph Examples</h2>
+</header>
+
+<article>
+    <script src="./vega.js"></script>
+<script src="./vega-lite.js"></script>
+<script src="./vega-embed.js"></script>
+<script src="./frappe-charts.min.iife.js"></script>
+<script src="./vega-tooltip.js"></script>
+<link href="./vega-tooltip.min.css" rel="stylesheet" type="text/css">
+<script src="./axios.min.js" type="text/javascript"></script>
+<script src="./lodash.min.js"></script>
+<script src="./chartist.min.js"></script>
+<script src="./plotly.min.js"></script>
+
+<link rel="stylesheet" href="./chartist.css">
+
+<script src="./multiple_graphs.js"></script>
+
+
+<p><link rel="stylesheet" href="./vs.css"></p>
+<p><link rel="stylesheet" href="./api.css"></p>
+<script src="./highlight.pack.js" type="text/javascript"></script>
+<script>hljs.initHighlightingOnLoad();console.log("initHighlightingOnLoad")</script>
+
+<style>
+.ct-series-a .ct-point, .ct-series-a .ct-line {stroke: #231f20; }
+.ct-series-b .ct-point, .ct-series-b .ct-line {stroke: #504975; }
+.ct-series-c .ct-point, .ct-series-c .ct-line {stroke: #005154; }
+.ct-series-d .ct-point, .ct-series-d .ct-line {stroke: #29aae2; }
+.ct-series-e .ct-point, .ct-series-e .ct-line {stroke: #754c29; }
+.ct-series-f .ct-point, .ct-series-f .ct-line {stroke: #e5006d; }
+.ct-series-g .ct-point, .ct-series-g .ct-line {stroke: #c9e516; }
+.ct-series-h .ct-point, .ct-series-h .ct-line {stroke: #f00; }
+.ct-series-i .ct-point, .ct-series-i .ct-line {stroke: #00f; }
+</style>
+
+
+
+<div class="fill">
+
+
+<div class="page-centered page-main">
+<div class="page-content">
+These are typical of the kind of graphs produced to explain data. They may look quite simple,
+but the purpose of this section is not just to show some graphs, but to demonstrate how to 
+wrangle the data to prepare it for drawing a specific graph. For instance, composite data 
+may require multiple lookups from the API that are then combined in code to produce a deceptively simple graph.
+The low carbon supply graph is an example of this, being a single line, but requires three separate queries to 
+get the right data.<br>
+
+<div class="example">
+<div class="graph_box" id="production_of_primary_fuels_graph" class="view"></div>
+<div class="graph_box" id="import_dependency_graph" class="view"></div>
+<div class="graph_box" id="imports_by_fuel_over_time_graph" class="view"></div>
+<div> This is a standard area graph created using <a href="https://vega.github.io/vega-lite/">vega</a>, which is a comprehensive charting library built on top of the d3 library.<br>It is used as an example in 08_ui_graphs and shows how to build a web page that queries the API for data to draw this graph.<br>Examples of other charting libraries are at the bottom of this page.<br></div>
+<div class="graph_box" id="imports_by_fuel_over_time_tree" class="view"></div>
+<div class="graph_box" id="low_carbon_supply_graph" class="view"></div>
+<div>
+This deceptively simple graph consisting of a single line is actually the most complex graph when it comes to data wrangling.<br>
+The calculation for this is <code>total low carbon / (total primary supply - non energy use)</code><br>The data stored in the API/database excludes any aggregated figures that may have been included in the published spreadsheet, so totals will need to be calculated separately (an exception to this are when an aggregated figure is presented as if it were raw data in the spreadsheet).
+The required data (ind low carbon / (total primary supply - non energy use are stored in logically different parts of the data space<br><code>...energy/dukes/aggregate_energy_balance/total_supply/non_energy_use...</code><br><code>...energy/dukes/primary_electricity/transformation...</code><br><code>...energy/dukesrenewablesources/onshore_wind/offshore_wind/marine_energy_wave_and_tidal_stream/solar_heating_and_photovoltaics/hydro/bioenergy/deep_geothermal/heat_pumps/transport_biofuels...</code><br>
+Note that the first two queries come from the <code>dukes</code> table, but the second comes from the <code>dukesrenewablesources</code> table.
+It may be tempting to combine both of the queries to the <code>dukes</code> table:<br><code>...energy/dukes/aggregate_energy_balance/total_supply/non_energy_use/primary_electricity/transformation...</code><br>
+
+This is certainly possible, but yields a different dataset. This is because of the interaction of the dimensions.<br>primary_electricity and aggregate_energy_balance are from the fuels dimension, whereas
+total_supply, non_energy_use and transformation are from the flows dimension.
+
+
+This means keeping the queries separate results in the following combinations of fuels and flows:
+
+<pre>
+                    |  aggregate |    primary   |
+                    |   energy   |  electricity |
+                    |   balance  |              | 
+--------------------+------------+--------------+-
+ total_supply       |     [x]    |              | 
+ transformation     |            |     [x]      | 
+</pre>
+
+
+Combining the queries separate results in all combinations of fuels and flows:
+
+<pre>
+                    |  aggregate |    primary   |
+                    |   energy   |  electricity |
+                    |   balance  |              | 
+--------------------+------------+--------------+-
+ total_supply       |     [x]    |     [x]      | 
+ transformation     |     [x]    |     [x]      | 
+</pre>
+
+
+The result of the three queries, for each year (some fields omitted for brevity) looks like this:<br>
+
+For the <code>...energy/dukes/aggregate_energy_balance/total_supply/non_energy_use...</code>  query
+
+<pre><code class="json hljs">
+[
+   {
+      &quot;item&quot;:&quot;Primary supply&quot;,
+      &quot;fuel&quot;:&quot;010:Aggregate energy balance&quot;,
+      &quot;energy&quot;:201125.03,
+   },
+   {
+      &quot;item&quot;:&quot;Non energy use&quot;,
+      &quot;fuel&quot;:&quot;010:Aggregate energy balance&quot;,
+      &quot;energy&quot;:8303.24,
+   }
+]
+</code></pre>
+
+
+For the <code>...energy/dukes/primary_electricity/transformation...</code>  query
+
+<pre><code class="json hljs">
+[
+   {
+      &quot;item&quot;:&quot;Transformation&quot;,
+      &quot;fuel&quot;:&quot;007:Primary electricity&quot;,
+      &quot;energy&quot;:15413.83,
+   }
+]
+</code></pre>
+
+
+For the <code>...energy/dukesrenewablesources/onshore_wind/offshore_wind/marine_energy_wave_and_tidal_stream/solar_heating_and_photovoltaics/hydro/bioenergy/deep_geothermal/heat_pumps/transport_biofuels...</code>  query
+(Note that this query is only on a single dimension, so the &quot;item&quot; field returned is identical to the &quot;fuel&quot; field)<br>
+<pre><code class="json hljs">
+[
+   {
+      &quot;fuel&quot;:&quot;Solar heating and photovoltaics&quot;,
+      &quot;energy&quot;:947.235,
+   },
+   {
+      &quot;fuel&quot;:&quot;Onshore wind&quot;,
+      &quot;energy&quot;:1802.381,
+   },
+   {
+      &quot;fuel&quot;:&quot;Offshore wind&quot;,
+      &quot;energy&quot;:1410.647,
+   },
+   {
+      &quot;fuel&quot;:&quot;Marine energy (wave and tidal stream)&quot;,
+      &quot;energy&quot;:0.001,
+   },
+   {
+      &quot;fuel&quot;:&quot;Hydro&quot;,
+      &quot;energy&quot;:463.868,
+   },
+   {
+      &quot;fuel&quot;:&quot;Bioenergy&quot;,
+      &quot;energy&quot;:11479.412,
+   },
+   {
+      &quot;fuel&quot;:&quot;Deep geothermal&quot;,
+      &quot;energy&quot;:0.829,
+   },
+   {
+      &quot;fuel&quot;:&quot;Heat pumps&quot;,
+      &quot;energy&quot;:182.228,
+   },
+   {
+      &quot;fuel&quot;:&quot;Transport biofuels&quot;,
+      &quot;energy&quot;:1009.544,
+   }
+]
+</code></pre>
+
+<div class="advice">
+<h4>Isn't this all a bit inefficient?</h4>
+Yes, and apart from requiring more coding at the client side, it also increases the burden on the server.<br>There are some promising technologies about that might help, such as <a href="https://graphql.org">GraphQL</a> and <a href="https://www.apollographql.com">Apollo</a><br>This API is really just a prototype, and there are many improvements that can be made...
+</div>
+
+<h3>Processing the data</h3><p>There are two different approaches to processing the data: using data frames or looping through native data structures.  </p>
+<p>Data frames can be conceptually easier for humans to understand, whereas looping is easier for computers as it is closer to the way hardware works. (This is not to be confused with the opposite advice given for R and Matlab/Octave, which addresses other issues).  </p>
+<p>Here, only the looping approach will be explored. However, there are JavaScript data frame libraries such as: </p>
+<ul>
+<li><a href="http://www.data-forge-js.com/">dataforge</a></li>
+<li><a href="https://github.com/StratoDem/pandas-js">pandas-js</a></li>
+<li><a href="https://gmousse.gitbooks.io/dataframe-js/">dataframe-js</a></li>
+<li><a href="https://github.com/osdat/jsdataframe/wiki">jsdataframe</a></li>
+</ul>
+<p>These have not been evaluated in depth, so a fair comparison can't be made.  </p>
+<p>The API uses <code>jsdataframe</code> for pivoting/unpivoting data prior to output. However, this was selected as much for simplicity and speed of implementation - other libraries may work better for you.</p>
+<h4>Looping approach</h4><p>The graph that is required is a time series, so the first thing to do is restructure the data so it uses time as a key.<br>The simplest representation would be to have an array where every element is the value for a given year, arranged in order of the year it relates to.</p>
+<pre><code class="json hljs">
+[0, 0, 0.077, 0.425, 0.411, 0.846, 17.084, 34.627, 56.011, 67.286, 114.824, 
+150.809, 263.086, 442.739, 653.756, 986.389, 1152.594, 1498.094, 1410.647]
+</code></pre>
+
+<p>But the data may not arrive neatly sorted by year, so it will need to be sorted. In fact, this is true in this case... 
+The data also needs to be grouped by type, so it makes sense to do both steps as part of the pre-processing. This results in data in this form (just one type shown here - each is an element in a bigger array).   </p>
+<pre><code class="json hljs">
+"Primary supply":{
+  "1998":{"energy":0},
+  "1999":{"energy":0},
+  "2000":{"energy":0.077},
+  "2001":{"energy":0.425},
+  "2002":{"energy":0.411},
+  "2003":{"energy":0.846},
+  "2004":{"energy":17.084},
+  "2005":{"energy":34.627},
+  "2006":{"energy":56.011},
+  "2007":{"energy":67.286},
+  "2008":{"energy":114.824},
+  "2009":{"energy":150.809},
+  "2010":{"energy":263.086},
+  "2011":{"energy":442.739},
+  "2012":{"energy":653.756},
+  "2013":{"energy":986.389},
+  "2014":{"energy":1152.594},
+  "2015":{"energy":1498.094},
+  "2016":{"energy":1410.647}
+}
+</code></pre>
+
+<p>This makes it easy to loop through the types in an outer loop, and the years in an inner loop.  </p>
+<p>The code to produce this intermediate data is:</p>
+<pre><code class="js hljs">
+let response_data; // this will be the imported data in the form [{}, {}, ... {}]
+let aggregate = {low_carbon: {}, denominator: {}}; // set up data structure. 
+                            //we want aggregate figures for ALL low-carbon, and the denominator 
+                            // (remember, the formula is: 
+                            // `total low carbon / (total primary supply - non energy use)`)
+
+
+// Organise data by type and year (i.e. timeseries for each type)
+
+// now iterate through loop - using plain vanilla `for-loop` here
+for (let j = 0; j < response_data.length; j++) {
+
+    // This is to create an empty placeholder object in the aggregate object if needed
+    // (a simple bit of defensive programming to test for existence and create if necessary).
+    // This step has to be done before the next step where values are collected because the
+    // container object must exist before you can fill it with anything.
+    if (typeof(aggregate[response_data[j].item]) == 'undefined') {
+        aggregate[response_data[j].item] = {};
+    }
+
+
+    // Similar test for existence, this time for a sub-object (`year`), but this time the 
+    // thing added is either an object with the value, or if already there, adds the 
+    // current value to it, so the number is aggregated incrementally in each loop iteration.
+    // Note the strange `'' + response_data[j].year` object key. This is because the key is a string, 
+    // so the year (a number) is coerced to a sting by concatenating with an empty string. 
+    // Object keys as numbers is a bad idea, as my_object[1998] looks like an array reference 
+    // to the 1999th element, which is not the same as my_object["1998"] - and may fail silently. 
+    // A similar trick to coerce from string to number is to prefix the variable with a `+` i.e.
+    // let numeric_var = +string_var;
+    if (typeof(aggregate[response_data[j].item]['' + response_data[j].year]) == 'undefined') {
+        // this creates a new object and sets it to the current value retrieved
+        aggregate[response_data[j].item]['' + response_data[j].year] = {'energy': response_data[j].energy};
+    } else {
+        // this is where the total value is accumulated
+        aggregate[response_data[j].item]['' + response_data[j].year].energy += response_data[j].energy;
+    }
+
+}
+</code></pre>
+
+<p>This technique is used again later for doing the final calculation with the aggregated figures, for each year.</p>
+<p>There are other looping techniques used. If you have an array, you can loop over all elements using forEach:</p>
+<pre><code class="js hljs">
+let low_carbon_keys = ["Transformation","Solar heating and photovoltaics","Onshore wind"]; // etc.
+
+// This uses the lodash library to get the keys of the Primary supply object 
+// (see above - this is just the years). Lodash is so useful, it is refered to as `_`
+let kPS = _.keys(aggregate["Primary supply"]);// any key will do - just want array of years
+
+low_carbon_keys.forEach(function(low_carbon_fuel){
+    energy_value += aggregate[low_carbon_fuel][kPS[j]].energy;
+});
+</code></pre>
+
+<p>You can even do this directly on the array definition:  </p>
+<pre><code class="js hljs">
+["low_carbon", "denominator", "Primary supply", "Non energy use"].forEach(function(exclude){
+    // .. do something with the `exclude` variable
+});                                            
+</code></pre>
+
+
+<p>The entire section of code that processes the data to produce this graph is:</p>
+<pre><code class="js hljs">
+graph_specs[i].data_url.forEach(function(url) {
+    dimension_info_urls.push( query_server(url) );
+});
+
+axios.all(dimension_info_urls)
+    .then(axios.spread(function () {
+        var response_data = [];
+        var aggregate = {'Balance': {} };
+        for (let i = 0; i < arguments.length; i++) {
+            if (response_data.length == 0) 
+                response_data = arguments[i].data;
+            else {
+                response_data = _.concat(response_data, arguments[i].data);
+            }
+        }
+
+        var aggregate = {low_carbon: {}, denominator: {}};
+
+        //first organise data by type and year (i.e. timeseries for each type)
+        for (let j = 0; j < response_data.length; j++) {
+            if (typeof(aggregate[response_data[j].item]) == 'undefined') {
+                aggregate[response_data[j].item] = {};
+            }
+
+            if (typeof(aggregate[response_data[j].item]['' + response_data[j].year]) == 'undefined') {
+                aggregate[response_data[j].item]['' + response_data[j].year] = {'energy': response_data[j].energy};
+            } else {
+                aggregate[response_data[j].item]['' + response_data[j].year].energy += response_data[j].energy;
+            }
+        }
+
+        var low_carbon_keys = _.keys(aggregate);
+        var denominator_keys = ["Primary supply", "Non energy use"];
+
+        // remove those elements that aren't low-carbon - 
+        // do it by removing non-LC to give flexibility in what is included in LC
+        ["low_carbon", "denominator", "Primary supply", "Non energy use"].forEach(function(exclude){
+            low_carbon_keys = low_carbon_keys.filter(item => (item !== exclude));
+        });                                            
+
+        var kPS = _.keys(aggregate["Primary supply"]);// any key will do - just want array of years
+        var final_balance = []; // this is the actual data that will be plotted
+
+        var energy_value;
+        for (let j = 0; j < kPS.length; j++) {
+
+            if (typeof(aggregate['low_carbon'][kPS[j]]) == 'undefined') {
+                energy_value = 0;
+                low_carbon_keys.forEach(function(low_carbon_fuel){
+                    energy_value += aggregate[low_carbon_fuel][kPS[j]].energy;
+                });
+                aggregate['low_carbon'][kPS[j]] = {'energy': energy_value};
+            }
+
+            if (typeof(aggregate['denominator'][kPS[j]]) == 'undefined') {
+                aggregate.denominator[kPS[j]] = {'energy': ( (aggregate['Primary supply'][kPS[j]].energy - aggregate['Non energy use'][kPS[j]].energy) )};
+            }
+
+            final_balance.push({year: kPS[j], energy: 100 * (aggregate['low_carbon'][kPS[j]].energy / aggregate['denominator'][kPS[j]].energy), percentage: 'UK energy from low carbon sources'})
+
+        }
+
+        // This is where the processed data is added to the graph
+        graph_specs[i].vega_spec.data.values = final_balance;
+        vegaEmbed(graph_specs[i].element, graph_specs[i].vega_spec, vopt);
+
+    }))
+    .catch(function (error) {
+        console.log('ERROR:', graph_specs[i].title);
+        console.log(error);
+    });
+</code></pre>
+
+
+<p>The final data that is plotted is:  </p>
+<pre><code class="json hljs">
+[{"year":"1998","energy":11.135497549108305,"percentage":"UK energy from low carbon sources"},
+{"year":"1999","energy":10.754954923545828,"percentage":"UK energy from low carbon sources"},
+{"year":"2000","energy":9.438896995323216,"percentage":"UK energy from low carbon sources"},
+{"year":"2001","energy":9.898984926415872,"percentage":"UK energy from low carbon sources"},
+{"year":"2002","energy":10.030487611013603,"percentage":"UK energy from low carbon sources"},
+{"year":"2003","energy":10.012368732892126,"percentage":"UK energy from low carbon sources"},
+{"year":"2004","energy":9.394767550383785,"percentage":"UK energy from low carbon sources"},
+{"year":"2005","energy":9.658444596150916,"percentage":"UK energy from low carbon sources"},
+{"year":"2006","energy":9.39864163687309,"percentage":"UK energy from low carbon sources"},
+{"year":"2007","energy":8.41540931614154,"percentage":"UK energy from low carbon sources"},
+{"year":"2008","energy":7.967824718153525,"percentage":"UK energy from low carbon sources"},
+{"year":"2009","energy":10.426567031776509,"percentage":"UK energy from low carbon sources"},
+{"year":"2010","energy":10.196560005188898,"percentage":"UK energy from low carbon sources"},
+{"year":"2011","energy":12.201476785065642,"percentage":"UK energy from low carbon sources"},
+{"year":"2012","energy":12.13270800068211,"percentage":"UK energy from low carbon sources"},
+{"year":"2013","energy":13.25778567620986,"percentage":"UK energy from low carbon sources"},
+{"year":"2014","energy":14.285231400640368,"percentage":"UK energy from low carbon sources"},
+{"year":"2015","energy":16.40175222384286,"percentage":"UK energy from low carbon sources"},
+{"year":"2016","energy":16.963837437667184,"percentage":"UK energy from low carbon sources"}]
+</code></pre>
+
+<p>The <code>&quot;percentage&quot;:&quot;UK energy from low carbon sources&quot;</code> element has been added as a workaround to get the vega library to display this in the legend. (Clearly not the most efficient way to achieve this)</p>
+<p></div></p>
+<h3>Comparison of different charting libraries</h3><p>There are many charting libraries, many of them free. There are also paid for libraries, but for most uses aren't necessary.  </p>
+<p>Here are four different libraries that highlight some of the features available. They are divided into two categories: lightweight libraries that have no dependencies and heavyweight libraries that depend on other lower-level libraries (d3 here). The lightweight libraries can be easier to use, and have less of a network burden and so will load faster. The heavyweight libraries tend to have more features and offer more graph types to choose from.</p>
+<h4>Heavyweight charting libraries</h4><h5>Plotly.js</h5><p>This used to be a paid for product, but was made open source a few years ago. It also has versions available for use in R, Python and Matlab. It is also quite straightforward to set up, and has many features available out of the box. It has an uncluttered appearance, and the axes are well handled.  </p>
+<p>Filesize: <strong>2.9MB</strong> (a lot, but this includes the d3 dependency too - might be annoying if you need to use a different version of d3 elsewhere for some reason. Note, d3, v5.7.0, is 242KB minimised)</p>
+<pre><code class="js hljs">
+let layout = {
+    title:'Primary demand by fuel',
+    width: 1000,
+    height: 600,
+    xaxis: {
+        title: 'Year',
+        showgrid: false,
+        zeroline: true
+    },
+    yaxis: {
+        title: 'Energy (ktoe)',
+        showline: false
+    }
+};
+
+Plotly.newPlot('primary_demand_by_fuel_plotly', plotly_datasets, layout);                        
+</code></pre>
+
+
+
+<p>An example of the data format:  </p>
+<pre><code class="json hljs">
+[
+   {
+      "x":["1998","1999","2000","2001","2002","2003","2004","2005","2006","2007",
+            "2008","2009","2010","2011","2012","2013","2014","2015","2016"],
+      "y":[40611,36106,38661,40960,37415,40109,38547,39399,43087,40408,
+             37490,31361,32556,33104,41008,38907,31311,24386,11763],
+      "mode":"lines+markers",
+      "name":"Coal",
+      "marker":{
+         "color":"#231f20",
+         "size":5
+      },
+      "line":{
+         "color":"#231f20",
+         "width":2
+      }
+   }
+]
+</code></pre>
+
+
+
+
+
+<div class="graph_box" id="primary_demand_by_fuel_plotly"></div>
+
+
+<h5>Vega-lite</h5><p>This is an opinionated library that usies the grammar of graphics as a theoretical basis. This makes for a rather cumbersome setup in defining the graph parameters in a declarative way before applying data to it. It does automatically handle certain data manipulations like aggregations, which can be useful occasionally. It has built-in tooltips, or can use a separate tooltip plugin. The built-in version is used here: it takes quite a long time to register the user hovering over a data point before displaying. Vega-lite has been adopted in the new Jupyter notebook, so seems to be gaining support. It does have a slightly cluttered, old-fashioned look about it - at least in the default appearance.  </p>
+<p>Filesize: <strong>758KB</strong> (for all the bits used here)</p>
+<h6>Setup:</h6><p>Everything that a vega-lit chart needs is in the vega_spec object, which is a declarative specificatioin in JSON.</p>
+<pre><code class="json hljs">
+vega_spec: {
+"$schema": "https://vega.github.io/schema/vega-lite/v2.json",
+"title": "Some title",
+"data": {"values": data_from_somewhere},
+"transform":[
+    {"calculate":"'' + datum.year",
+     "as":"Year"}
+],
+"width": 700,
+"height": 400,
+"mark": "line",
+"encoding": {
+    "x": {
+        "field": "Year",
+        "type": "temporal",
+        "axis": {"title": "Year", "format": "%Y", "grid": false}
+    },
+    "y": {"aggregate": "sum", "field": "energy", "type": "quantitative", "axis": {"title": "Energy (ktoe)"}},
+    "color": {"field": "fuel", "type": "nominal", "scale": {"scheme": "energy_colours"}},
+    }
+}
+</code></pre>
+
+
+<p>An example of the data format:  </p>
+<pre><code class="json hljs">
+[
+   {
+      "item":"Primary demand",
+      "display_order":58,
+      "fuel":"All other fuels",
+      "year":2016,
+      "energy":783.81,
+      "unit":"ktoe",
+      "src":"1.1",
+      "fuel_index":10
+   },
+   {
+      "item":"Primary demand",
+      "display_order":58,
+      "fuel":"004:Petroleum products",
+      "year":2016,
+      "energy":8795.69,
+      "unit":"ktoe",
+      "src":"1.1",
+      "fuel_index":3
+   },
+   {
+      "item":"Primary demand",
+      "display_order":58,
+      "fuel":"006:Bioenergy and waste",
+      "year":2016,
+      "energy":14179.55,
+      "unit":"ktoe",
+      "src":"1.1",
+      "fuel_index":5
+   }
+]
+</code></pre>
+
+<p>This is exactly as the data comes from the database query, except that <code>&quot;fuel&quot;:&quot;All other fuels&quot;</code> has been aggregated from several of the low-value fuel types.  </p>
+<div class="graph_box" id="primary_demand_by_fuel_graph" class="view"></div>
+
+
+<h4>Lightweight charting libraries</h4><h5>Frappe Charts</h5><p>This is a relatively new library, so has a few rough edges, but looks quite pleasant. It doesn't have many graph types to choose from, but given that it is still in the initial development phase, that could change. There are a few problems with the choice of scales on the axes, and in this example the tooltip has become too big, as has the horizontal legend.  </p>
+<p>Filesize: <strong>61KB</strong></p>
+<pre><code class="js hljs">
+const chart = new frappe.Chart("#primary_demand_by_fuel_fc", {
+    title: "Primary demand by fuel",
+    data: data,
+    type: 'line',
+    height: 600,
+    colors: fc_energy_colours,
+    lineOptions: {hideDots: 0, dotSize: 3},
+    axisOptions: {xAxisMode: 'tick', yAxisMode: 'span', xIsSeries: true}
+});
+</code></pre>
+
+
+
+<p>An example of the data format:  </p>
+<pre><code class="json hljs">
+{  
+  "labels":["1998","1999","2000","2001","2002","2003","2004","2005","2006","2007",
+            "2008","2009","2010","2011","2012","2013","2014","2015","2016"],
+  "datasets":[  
+    [{"name":"Coal","type":"line",
+      "values":[40611,36106,38661,40960,37415,40109,38547,39399,43087,40408,
+                37490,31361,32556,33104,41008,38907,31311,24386,11763]}
+   ]
+}
+</code></pre>
+
+
+
+
+<div class="graph_box" id="primary_demand_by_fuel_fc" class="view"></div>
+
+
+<h5>Chartist</h5><p>This is a competent library that also looks nice. It was also easy to set up, and has quite a few interesting features for a small library. Styling is mostly controlled by CSS rather than by setting values in code. This makes for much easier setup, and is good if you have a corporate style to follow (but not so great if the colour values are provided by the code/data, as is the case here). It is designed to be responsive, so works well on mobile platforms.  </p>
+<p>Tooltips are provided by a plugin, as are axis titles, which is why they don't appear here. There are some other very useful looking plugins, particularly the <em>Accessibility Plugin</em>. These are the plugins provided on the site:  </p>
+<ul>
+<li>Accessibility</li>
+<li>Tooltip</li>
+<li>Point Label</li>
+<li>Axis Title</li>
+<li>Threshold</li>
+<li>FillDonut</li>
+<li>Zoom</li>
+</ul>
+<p>There are also instructions for making </p>
+<p>Filesize: <strong>41KB</strong> + 16KB for the CSS</p>
+<pre><code class="js hljs">
+new Chartist.Line('#primary_demand_by_fuel_chartist', {
+    labels: ordered_years,
+    series: ch_datasets
+}, {
+    width: 800,
+    height: 450,
+    fullWidth: true,
+    chartPadding: {right: 40},
+    lineSmooth: Chartist.Interpolation.none({fillHoles: false})
+});
+</code></pre>
+
+
+
+<p>An example of the data format:  </p>
+<pre><code class="json hljs">
+{  
+  "labels":["1998","1999","2000","2001","2002","2003","2004","2005","2006","2007",
+            "2008","2009","2010","2011","2012","2013","2014","2015","2016"],
+  "series":[[40611,36106,38661,40960,37415,40109,38547,39399,43087,40408,
+             37490,31361,32556,33104,41008,38907,31311,24386,11763]]
+}
+</code></pre>
+
+
+
+<div class="ct-chart" id="primary_demand_by_fuel_chartist"></div>
+
+
+
+
+<div class="graph_box" id="final_consumption_by_fuel_graph" class="view"></div>
+
+<p></div>
+</div>
+</div></p>
+<p></div></p>
+</article>
+
+</section>
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Modules</h3><ul><li><a href="module-Querify.html">Querify</a></li><li><a href="module-Shapeshifter.html">Shapeshifter</a></li></ul><h3>Tutorials</h3><ul><li><a href="tutorial-01_introduction.html">01. Introduction</a></li><li><a href="tutorial-02_installation.html">02. Installation</a></li><li><a href="tutorial-03_getting_data.html">03. Using the API to get data</a></li><li><a href="tutorial-04_how_it_works.html">04. How it works</a></li><li><a href="tutorial-05_data_structure.html">05. Data structures</a></li><li><a href="tutorial-06_preparing_data.html">06. Preparing stats data for the API</a></li><li><a href="tutorial-07_server.html">07. Updating live server</a></li><li><a href="tutorial-08_ui_landing.html">08. UIs: landing pages</a></li><li><a href="tutorial-09_ui_dd.html">09.  UIs: data downloader</a></li><li><a href="tutorial-10_ui_graphs.html">10. Other UI possibilities: graphs</a></li><li><a href="tutorial-11_a1.html">Annex 1: Design Principles</a></li><li><a href="tutorial-12_a2.html">Annex 2: Engineering Principles</a></li><li><a href="tutorial-13_a3.html">Annex 3: Future Developments</a></li><li><a href="tutorial-14_a4_graphs.html">Annex 4: Graph Examples</a></li></ul><h3>Global</h3><ul><li><a href="global.html#end_timer">end_timer</a></li><li><a href="global.html#finalise_response">finalise_response</a></li><li><a href="global.html#format_yaml">format_yaml</a></li><li><a href="global.html#get_datasets">get_datasets</a></li><li><a href="global.html#normalizePort">normalizePort</a></li><li><a href="global.html#onError">onError</a></li><li><a href="global.html#onListening">onListening</a></li><li><a href="global.html#output_404">output_404</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.5.5</a> on Mon Jan 13 2020 17:36:08 GMT+0000 (Greenwich Mean Time)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>
